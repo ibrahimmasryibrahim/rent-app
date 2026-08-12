@@ -166,6 +166,9 @@ document.getElementById("bottomNav").addEventListener("click", (e) => {
 document.getElementById("bellBtn").addEventListener("click", () => (location.hash = "#/notifications"));
 
 /* ================= SCREEN: login ================= */
+// No verification code: the real gate is the group admin approving your
+// join request (see the onboarding screen). Logging in only establishes
+// who you're claiming to be; it never grants access to any group's data.
 
 screen("login", (root) => {
   root.innerHTML = `
@@ -173,69 +176,26 @@ screen("login", (root) => {
       <div class="brand-hero">
         <div class="emoji">🏠</div>
         <h1>حاسبة السكن المشترك</h1>
-        <p>سجّل دخولك برقم هاتفك للمتابعة</p>
+        <p>اكتب اسمك ورقم هاتفك للمتابعة</p>
+      </div>
+      <div class="field">
+        <label for="nameInput">اسمك</label>
+        <input id="nameInput" type="text" placeholder="مثال: أحمد" autocomplete="name">
       </div>
       <div class="field">
         <label for="phoneInput">رقم الهاتف</label>
         <input id="phoneInput" type="tel" placeholder="+965XXXXXXXX" autocomplete="tel" dir="ltr">
         <div class="error" id="phoneError"></div>
       </div>
-      <button class="btn btn-primary btn-block" id="sendOtpBtn">إرسال رمز التحقق</button>
+      <button class="btn btn-primary btn-block" id="loginBtn">دخول</button>
     </div>`;
-  document.getElementById("sendOtpBtn").addEventListener("click", async () => {
+  document.getElementById("loginBtn").addEventListener("click", async () => {
+    const name = document.getElementById("nameInput").value.trim();
     const phone = document.getElementById("phoneInput").value.trim();
     const errEl = document.getElementById("phoneError");
     errEl.classList.remove("show");
     try {
-      const res = await Api.post("/auth/otp/request", { phone }, { noAuth: true });
-      sessionStorage.setItem("pendingPhone", phone);
-      if (res.devCode) toast("🧪 وضع تطويري — الرمز: " + res.devCode);
-      location.hash = "#/verify";
-    } catch (e) {
-      errEl.textContent = e.message;
-      errEl.classList.add("show");
-    }
-  });
-});
-
-screen("verify", (root) => {
-  const phone = sessionStorage.getItem("pendingPhone") || "";
-  root.innerHTML = `
-    <div class="center-screen">
-      <div class="brand-hero">
-        <div class="emoji">🔐</div>
-        <h1>رمز التحقق</h1>
-        <p>أُرسل رمز مكوّن من 6 أرقام إلى ${escapeHtml(phone)}</p>
-      </div>
-      <div class="otp-boxes">
-        ${[0, 1, 2, 3, 4, 5].map((i) => `<input class="otpDigit" data-i="${i}" maxlength="1" inputmode="numeric">`).join("")}
-      </div>
-      <div class="error" id="otpError" style="text-align:center;margin-top:8px"></div>
-      <button class="btn btn-primary btn-block" id="verifyBtn" style="margin-top:18px">تأكيد</button>
-      <button class="btn btn-ghost btn-block" id="backBtn" style="margin-top:8px">رجوع</button>
-    </div>`;
-  const digits = Array.from(document.querySelectorAll(".otpDigit"));
-  digits[0].focus();
-  digits.forEach((input, i) => {
-    input.addEventListener("input", () => {
-      input.value = input.value.replace(/\D/g, "").slice(0, 1);
-      if (input.value && digits[i + 1]) digits[i + 1].focus();
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Backspace" && !input.value && digits[i - 1]) digits[i - 1].focus();
-    });
-  });
-  document.getElementById("backBtn").addEventListener("click", () => (location.hash = "#/login"));
-  document.getElementById("verifyBtn").addEventListener("click", async () => {
-    const code = digits.map((d) => d.value).join("");
-    const errEl = document.getElementById("otpError");
-    if (code.length !== 6) {
-      errEl.textContent = "أدخل الرمز كاملًا";
-      errEl.classList.add("show");
-      return;
-    }
-    try {
-      const res = await Api.post("/auth/otp/verify", { phone, code }, { noAuth: true });
+      const res = await Api.post("/auth/login", { phone, name }, { noAuth: true });
       Api.setTokens(res.accessToken, res.refreshToken);
       Api.setMe(res.user);
       App.me = res.user;
@@ -956,7 +916,7 @@ screen("admin/settings", async (root) => {
     App.me = me;
     try {
       await afterLogin();
-      if (!location.hash || location.hash === "#/login" || location.hash === "#/verify") {
+      if (!location.hash || location.hash === "#/login") {
         location.hash = App.groups.length ? "#/home" : "#/onboarding";
       } else {
         renderRoute();

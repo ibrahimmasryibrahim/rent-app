@@ -2,7 +2,6 @@ const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
-const { requestOtp, verifyOtp } = require("../auth/otp");
 const { signAccessToken, issueRefreshToken, rotateRefreshToken } = require("../auth/jwt");
 const { requireAuth } = require("../auth/middleware");
 const asyncHandler = require("../utils/async-handler");
@@ -13,30 +12,27 @@ function normalizePhone(phone) {
   return String(phone || "").replace(/[^\d+]/g, "");
 }
 
-router.post("/otp/request", asyncHandler(async (req, res) => {
+// No verification code: identity is just "phone + name". The real gate is at
+// the group level — joining a group still requires the group's admin to
+// approve the join request (see /groups/join and /groups/:id/join-requests).
+// Logging in never grants access to any group's data on its own; every group
+// route re-checks membership.status server-side regardless of this endpoint.
+router.post("/login", asyncHandler(async (req, res) => {
   const phone = normalizePhone(req.body.phone);
+  const name = String(req.body.name || "").trim().slice(0, 60);
   if (!/^\+?\d{8,15}$/.test(phone)) {
     return res.status(400).json({ error: "رقم هاتف غير صالح" });
   }
-  try {
-    const result = await requestOtp(phone);
-    res.json({ ok: true, expiresAt: result.expiresAt, devCode: result.devCode });
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "تعذر إرسال الرمز" });
-  }
-}));
-
-router.post("/otp/verify", asyncHandler(async (req, res) => {
-  const phone = normalizePhone(req.body.phone);
-  const code = String(req.body.code || "");
-  const result = await verifyOtp(phone, code);
-  if (!result.ok) return res.status(400).json({ error: result.reason });
 
   let user = await db.prepare("SELECT * FROM users WHERE phone = ?").get(phone);
   if (!user) {
+    if (!name) return res.status(400).json({ error: "الاسم مطلوب لأول مرة" });
     const id = crypto.randomUUID();
-    await db.prepare("INSERT INTO users (id, phone, name) VALUES (?, ?, ?)").run(id, phone, "");
+    await db.prepare("INSERT INTO users (id, phone, name) VALUES (?, ?, ?)").run(id, phone, name);
     user = await db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+  } else if (name && !user.name) {
+    await db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, user.id);
+    user.name = name;
   }
 
   const accessToken = signAccessToken(user.id);

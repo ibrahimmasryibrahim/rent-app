@@ -3,6 +3,10 @@
 -- back as JS Date objects, which Express's res.json() serializes to ISO-8601
 -- strings automatically — no manual formatting needed anywhere else.
 
+-- OTP verification was removed: identity is phone+name, and the real
+-- gate is admin approval of group join requests.
+DROP TABLE IF EXISTS otp_codes;
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   phone TEXT NOT NULL UNIQUE,
@@ -61,16 +65,6 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_period ON expenses(period_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
-
-CREATE TABLE IF NOT EXISTS otp_codes (
-  id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL,
-  code_hash TEXT NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  consumed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
