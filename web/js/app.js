@@ -50,6 +50,29 @@ function toast(msg) {
 function closeModal() {
   document.getElementById("modalRoot").innerHTML = "";
 }
+
+/** Wraps an async click handler with a spinner + disabled state on the button,
+ * so slow requests (free-tier cold starts, weak signal) give feedback instead
+ * of looking frozen or inviting a confusing double-tap. */
+async function withLoading(btn, fn) {
+  if (!btn || btn.classList.contains("loading")) return;
+  btn.classList.add("loading");
+  btn.disabled = true;
+  try {
+    await fn();
+  } finally {
+    btn.classList.remove("loading");
+    btn.disabled = false;
+  }
+}
+
+const SKELETON_SCREEN = `
+  <div class="screen">
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-row"></div>
+    <div class="skeleton skel-row"></div>
+    <div class="skeleton skel-row"></div>
+  </div>`;
 function openSheet(html, onMount) {
   const root = document.getElementById("modalRoot");
   root.innerHTML = `<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet"><div class="drag-bar"></div>${html}</div></div>`;
@@ -132,7 +155,7 @@ async function renderRoute() {
   App.route = parts[0]; // "admin" for any admin sub-page, used for bottom-nav active state
   updateChrome();
   const root = document.getElementById("screenRoot");
-  root.innerHTML = `<div class="screen"><div class="empty-hint">جارٍ التحميل...</div></div>`;
+  root.innerHTML = ["login", "onboarding"].includes(routeKey) ? "" : SKELETON_SCREEN;
   try {
     const fn = routes[routeKey] || routes["login"];
     await fn(root, parts.slice(routeKey.includes("/") ? 2 : 1));
@@ -189,7 +212,8 @@ screen("login", (root) => {
       </div>
       <button class="btn btn-primary btn-block" id="loginBtn">دخول</button>
     </div>`;
-  document.getElementById("loginBtn").addEventListener("click", async () => {
+  const loginBtn = document.getElementById("loginBtn");
+  loginBtn.addEventListener("click", () => withLoading(loginBtn, async () => {
     const name = document.getElementById("nameInput").value.trim();
     const phone = document.getElementById("phoneInput").value.trim();
     const errEl = document.getElementById("phoneError");
@@ -204,7 +228,7 @@ screen("login", (root) => {
       errEl.textContent = e.message;
       errEl.classList.add("show");
     }
-  });
+  }));
 });
 
 async function afterLogin() {
@@ -241,23 +265,44 @@ screen("onboarding", (root) => {
         <h1>ابدأ الآن</h1>
         <p>أنشئ مجموعة سكن جديدة أو انضم لمجموعة موجودة</p>
       </div>
-      <div class="field">
-        <label>اسم المجموعة (لإنشاء مجموعة جديدة)</label>
-        <input id="groupName" placeholder="مثال: سكن الشباب">
+      <div class="tabs">
+        <button class="active" data-tab="create">إنشاء مجموعة</button>
+        <button data-tab="join">الانضمام بكود</button>
       </div>
-      <button class="btn btn-primary btn-block" id="createGroupBtn">+ إنشاء مجموعة</button>
-      <div style="text-align:center;margin:16px 0;color:var(--text-soft);font-size:.8rem">— أو —</div>
-      <div class="field">
-        <label>كود الدعوة (للانضمام لمجموعة)</label>
-        <input id="inviteCode" placeholder="ABC123" dir="ltr" style="text-transform:uppercase">
+
+      <div class="tab-panel active" data-panel="create">
+        <div class="field">
+          <label for="groupName">اسم المجموعة</label>
+          <input id="groupName" placeholder="مثال: سكن الشباب">
+        </div>
+        <button class="btn btn-primary btn-block" id="createGroupBtn">+ إنشاء مجموعة</button>
       </div>
-      <button class="btn btn-block" id="joinGroupBtn">انضمام بالكود</button>
+
+      <div class="tab-panel" data-panel="join">
+        <div class="field">
+          <label for="inviteCode">كود الدعوة</label>
+          <input id="inviteCode" placeholder="ABC123" dir="ltr" style="text-transform:uppercase">
+          <div class="hint">هتحتاج الكود من مشرف المجموعة، وطلبك هيحتاج موافقته</div>
+        </div>
+        <button class="btn btn-primary btn-block" id="joinGroupBtn">انضمام</button>
+      </div>
+
       <div class="error" id="onboardError" style="text-align:center;margin-top:10px"></div>
     </div>`;
 
-  document.getElementById("createGroupBtn").addEventListener("click", async () => {
+  root.querySelectorAll(".tabs button").forEach((tabBtn) => {
+    tabBtn.addEventListener("click", () => {
+      root.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === tabBtn));
+      root.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === tabBtn.dataset.tab));
+      document.getElementById("onboardError").classList.remove("show");
+    });
+  });
+
+  const errEl = document.getElementById("onboardError");
+  const createBtn = document.getElementById("createGroupBtn");
+  createBtn.addEventListener("click", () => withLoading(createBtn, async () => {
     const name = document.getElementById("groupName").value.trim();
-    const errEl = document.getElementById("onboardError");
+    errEl.classList.remove("show");
     if (!name) { errEl.textContent = "اكتب اسم المجموعة"; errEl.classList.add("show"); return; }
     try {
       await Api.post("/groups", { name });
@@ -268,11 +313,12 @@ screen("onboarding", (root) => {
     } catch (e) {
       errEl.textContent = e.message; errEl.classList.add("show");
     }
-  });
+  }));
 
-  document.getElementById("joinGroupBtn").addEventListener("click", async () => {
+  const joinBtn = document.getElementById("joinGroupBtn");
+  joinBtn.addEventListener("click", () => withLoading(joinBtn, async () => {
     const inviteCode = document.getElementById("inviteCode").value.trim();
-    const errEl = document.getElementById("onboardError");
+    errEl.classList.remove("show");
     try {
       const res = await Api.post("/groups/join", { inviteCode });
       if (res.status === "pending") {
@@ -286,7 +332,7 @@ screen("onboarding", (root) => {
     } catch (e) {
       errEl.textContent = e.message; errEl.classList.add("show");
     }
-  });
+  }));
 });
 
 /* ================= SCREEN: home ================= */
@@ -456,7 +502,8 @@ async function openAddExpenseModal() {
       <button class="btn btn-primary" id="saveExpBtn">حفظ</button>
     </div>`, (root) => {
     root.querySelector("#cancelExpBtn").addEventListener("click", closeModal);
-    root.querySelector("#saveExpBtn").addEventListener("click", async () => {
+    const saveExpBtn = root.querySelector("#saveExpBtn");
+    saveExpBtn.addEventListener("click", () => withLoading(saveExpBtn, async () => {
       const name = root.querySelector("#expName").value.trim();
       const amount = root.querySelector("#expAmount").value;
       const category = root.querySelector("#expCategory").value;
@@ -470,7 +517,7 @@ async function openAddExpenseModal() {
       } catch (e) {
         errEl.textContent = e.message; errEl.classList.add("show");
       }
-    });
+    }));
   });
 }
 
@@ -491,12 +538,12 @@ function openExpenseDetail(e) {
     </div>`, (root) => {
     root.querySelector("#closeExpDetail").addEventListener("click", closeModal);
     const delBtn = root.querySelector("#deleteExpBtn");
-    if (delBtn) delBtn.addEventListener("click", async () => {
+    if (delBtn) delBtn.addEventListener("click", () => withLoading(delBtn, async () => {
       await Api.del(`/groups/${App.currentGroupId}/expenses/${e.id}`);
       closeModal();
       toast("تم حذف المصروف");
       renderRoute();
-    });
+    }));
   });
 }
 
@@ -577,13 +624,14 @@ screen("profile", (root) => {
       <button class="btn btn-danger btn-block" id="logoutBtn" style="margin-top:26px">تسجيل الخروج</button>
     </div>`;
 
-  document.getElementById("saveProfileBtn").addEventListener("click", async () => {
+  const saveProfileBtn = document.getElementById("saveProfileBtn");
+  saveProfileBtn.addEventListener("click", () => withLoading(saveProfileBtn, async () => {
     const name = document.getElementById("profileName").value.trim();
     const res = await Api.patch("/auth/me", { name });
     App.me = res; Api.setMe(res);
     toast("تم الحفظ");
     updateChrome();
-  });
+  }));
   root.querySelectorAll("[data-switch-group]").forEach((el) => {
     el.addEventListener("click", async () => {
       await selectGroup(el.dataset.switchGroup);
@@ -745,7 +793,8 @@ function openAddMemberModal() {
       <button class="btn btn-primary" id="saveAddMember">+ إضافة</button>
     </div>`, (root) => {
     root.querySelector("#cancelAddMember").addEventListener("click", closeModal);
-    root.querySelector("#saveAddMember").addEventListener("click", async () => {
+    const saveAddMember = root.querySelector("#saveAddMember");
+    saveAddMember.addEventListener("click", () => withLoading(saveAddMember, async () => {
       try {
         await Api.post(`/groups/${App.currentGroupId}/members`, {
           phone: root.querySelector("#newMemberPhone").value.trim(),
@@ -756,7 +805,7 @@ function openAddMemberModal() {
         const err = root.querySelector("#addMemberError");
         err.textContent = e.message; err.classList.add("show");
       }
-    });
+    }));
   });
 }
 
@@ -771,10 +820,11 @@ screen("admin/rent", async (root) => {
       <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-bottom:14px">سيُعاد حساب نصيب كل عضو نشط تلقائيًا فور الحفظ</div>
       <button class="btn btn-primary btn-block" id="saveRentBtn">حفظ</button>
     </div>`;
-  document.getElementById("saveRentBtn").addEventListener("click", async () => {
+  const saveRentBtn = document.getElementById("saveRentBtn");
+  saveRentBtn.addEventListener("click", () => withLoading(saveRentBtn, async () => {
     await Api.patch(`/groups/${App.currentGroupId}/rent`, { rent: document.getElementById("rentInput").value });
     toast("تم تحديث الإيجار"); location.hash = "#/admin";
-  });
+  }));
 });
 
 /* ---- admin/period ---- */
@@ -835,14 +885,14 @@ screen("admin/requests", async (root) => {
           </div>`).join("") : `<div class="empty-hint">لا توجد طلبات معلّقة</div>`}
       </div>
     </div>`;
-  root.querySelectorAll("[data-approve]").forEach((btn) => btn.addEventListener("click", async () => {
+  root.querySelectorAll("[data-approve]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
     await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.approve}/approve`, {});
     toast("تم القبول"); renderRoute();
-  }));
-  root.querySelectorAll("[data-reject]").forEach((btn) => btn.addEventListener("click", async () => {
+  })));
+  root.querySelectorAll("[data-reject]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
     await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.reject}/reject`, {});
     toast("تم الرفض"); renderRoute();
-  }));
+  })));
 });
 
 /* ---- admin/audit ---- */
@@ -897,25 +947,43 @@ screen("admin/settings", async (root) => {
       <div class="field"><label>كود الدعوة</label><input value="${group.invite_code}" disabled dir="ltr"></div>
       <button class="btn btn-primary btn-block" id="saveSettingsBtn">حفظ</button>
     </div>`;
-  document.getElementById("saveSettingsBtn").addEventListener("click", async () => {
+  const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+  saveSettingsBtn.addEventListener("click", () => withLoading(saveSettingsBtn, async () => {
     await Api.patch(`/groups/${App.currentGroupId}/settings`, {
       expenseAddPermission: document.getElementById("permSelect").value,
       joinRequiresApproval: document.getElementById("approvalSelect").value === "1"
     });
     toast("تم الحفظ"); location.hash = "#/admin";
-  });
+  }));
 });
 
 /* ================= boot ================= */
+// The free hosting tier sleeps after inactivity and can take 30-50s to wake on
+// the very first request — without an explanation that reads as "broken", not
+// "loading". If boot takes more than ~2.5s, we surface that explicitly.
+
+function hideBootSplash() {
+  const el = document.getElementById("bootSplash");
+  if (!el) return;
+  el.style.opacity = "0";
+  setTimeout(() => el.remove(), 250);
+}
 
 (async function boot() {
   updateOfflineBanner();
+  const wakeTimer = setTimeout(() => {
+    const msg = document.getElementById("wakeMsg");
+    if (msg) msg.classList.add("show");
+  }, 2500);
+
   const me = Api.getMe();
   const { accessToken } = Api.getTokens();
   if (me && accessToken) {
     App.me = me;
     try {
       await afterLogin();
+      clearTimeout(wakeTimer);
+      hideBootSplash();
       if (!location.hash || location.hash === "#/login") {
         location.hash = App.groups.length ? "#/home" : "#/onboarding";
       } else {
@@ -926,5 +994,7 @@ screen("admin/settings", async (root) => {
       Api.clearTokens();
     }
   }
+  clearTimeout(wakeTimer);
+  hideBootSplash();
   renderRoute();
 })();

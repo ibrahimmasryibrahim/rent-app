@@ -211,3 +211,45 @@ a{color:inherit}
   font-weight:700; white-space:nowrap; flex:none;
 }
 .chip.active{background:var(--ink); color:var(--primary); border-color:var(--ink)}
+
+/* ---------- perceived speed: transitions, skeletons, boot splash ---------- */
+
+@keyframes fadeInUp{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+.screen{animation:fadeInUp .22s ease}
+
+@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:calc(200px + 100%) 0}}
+.skeleton{
+  background:linear-gradient(90deg, var(--gray-bg) 25%, var(--border) 37%, var(--gray-bg) 63%);
+  background-size:400px 100%; animation:shimmer 1.3s ease infinite; border-radius:var(--radius-sm);
+}
+.skel-card{height:96px; border-radius:var(--radius); margin-bottom:16px}
+.skel-row{height:58px; margin-bottom:8px}
+.skel-line{height:14px; width:60%; margin-bottom:8px}
+
+#bootSplash{
+  position:fixed; inset:0; z-index:500; background:var(--bg); display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:14px; transition:opacity .25s ease;
+}
+#bootSplash .emoji{font-size:2.6rem; animation:pulseSoft 1.6s ease-in-out infinite}
+#bootSplash .spinner{width:26px; height:26px; border-radius:50%; border:3px solid var(--border); border-top-color:var(--primary); animation:spin .8s linear infinite}
+#bootSplash .wake-msg{font-size:.78rem; color:var(--text-soft); text-align:center; max-width:260px; opacity:0; transition:opacity .3s}
+#bootSplash .wake-msg.show{opacity:1}
+@keyframes pulseSoft{0%,100%{transform:scale(1); opacity:1}50%{transform:scale(1.08); opacity:.85}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.btn.loading{position:relative; color:transparent !important; pointer-events:none}
+.btn.loading::after{
+  content:""; position:absolute; width:16px; height:16px; border-radius:50%;
+  border:2px solid rgba(0,0,0,.25); border-top-color:currentColor; animation:spin .7s linear infinite;
+  color:#14120d;
+}
+.btn-danger.loading::after,.btn:not(.btn-primary).loading::after{border:2px solid var(--border); border-top-color:var(--text)}
+
+.tabs{display:flex; background:var(--gray-bg); border-radius:var(--radius-sm); padding:4px; margin-bottom:18px}
+.tabs button{
+  flex:1; background:transparent; border:none; padding:9px; border-radius:6px; font-size:.85rem; font-weight:700;
+  color:var(--text-soft);
+}
+.tabs button.active{background:var(--surface); color:var(--text); box-shadow:var(--shadow)}
+.tab-panel{display:none}
+.tab-panel.active{display:block; animation:fadeInUp .18s ease}
