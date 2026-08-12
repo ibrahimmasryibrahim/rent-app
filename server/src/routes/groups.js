@@ -136,6 +136,19 @@ router.get("/:groupId", asyncHandler(async (req, res) => {
   res.json({ group: await getGroupOr404(req.params.groupId), membership: req.membership });
 }));
 
+router.delete("/:groupId", requireRole("admin"), asyncHandler(async (req, res) => {
+  const groupId = req.params.groupId;
+  await db.prepare("DELETE FROM expenses WHERE period_id IN (SELECT id FROM financial_periods WHERE group_id = ?)").run(groupId);
+  await db.prepare("DELETE FROM financial_periods WHERE group_id = ?").run(groupId);
+  await db.prepare("DELETE FROM notifications WHERE group_id = ?").run(groupId);
+  await db.prepare("DELETE FROM audit_log WHERE group_id = ?").run(groupId);
+  await db.prepare("DELETE FROM join_requests WHERE group_id = ?").run(groupId);
+  await db.prepare("DELETE FROM memberships WHERE group_id = ?").run(groupId);
+  await db.prepare("DELETE FROM groups WHERE id = ?").run(groupId);
+  emitToGroup(groupId, "GroupDeleted", { groupId });
+  res.json({ ok: true });
+}));
+
 router.get("/:groupId/dashboard", requireActiveMembership, asyncHandler(async (req, res) => {
   const { group, period, activeMembers, expenses, settlement } = await computeGroupSettlement(req.params.groupId);
   const me = settlement ? settlement.byUserId[req.user.id] : null;

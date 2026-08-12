@@ -23,26 +23,6 @@ router.get("/history", asyncHandler(async (req, res) => {
 
 router.use(requireRole("admin"));
 
-router.post("/close", asyncHandler(async (req, res) => {
-  const period = await getOpenPeriod(req.params.groupId);
-  if (!period) return res.status(400).json({ error: "لا يوجد شهر مالي مفتوح لإغلاقه" });
-
-  await db.prepare("UPDATE financial_periods SET status = 'closed', closed_at = now() WHERE id = ?").run(period.id);
-  await writeAudit(req.params.groupId, req.user.id, "period_closed", "financial_period", period.id, { status: "open" }, { status: "closed" });
-
-  const allM = await getAllMemberships(req.params.groupId);
-  const recipients = allM.filter((m) => m.status === "active").map((m) => m.user_id);
-  await notifyUsers(req.params.groupId, recipients, {
-    type: "month_closed",
-    title: "تم إغلاق الحساب الشهري",
-    message: `تم إغلاق حساب ${period.label}. يمكنك مراجعة النتائج من السجل`,
-    relatedEntityType: "financial_period",
-    relatedEntityId: period.id
-  });
-  emitToGroup(req.params.groupId, "MonthClosed", { periodId: period.id });
-  res.json({ ok: true, period: await db.prepare("SELECT * FROM financial_periods WHERE id = ?").get(period.id) });
-}));
-
 router.post("/new-month", asyncHandler(async (req, res) => {
   const openPeriod = await getOpenPeriod(req.params.groupId);
   if (openPeriod) {

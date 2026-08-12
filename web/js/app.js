@@ -120,6 +120,20 @@ function connectSocket() {
       if (["home", "expenses", "admin", "admin-members"].includes(App.route)) renderRoute();
     });
   });
+  App.socket.on("GroupDeleted", async (data) => {
+    if (data.groupId !== App.currentGroupId) return;
+    toast("تم حذف هذه المجموعة");
+    const groupsData = await Api.get("/groups/mine");
+    App.groups = groupsData.groups;
+    if (App.groups.length) {
+      await selectGroup(App.groups[0].id);
+      location.hash = "#/home";
+    } else {
+      App.currentGroupId = null;
+      location.hash = "#/onboarding";
+    }
+    renderRoute();
+  });
 }
 
 async function refreshBellBadge() {
@@ -538,12 +552,14 @@ function openExpenseDetail(e) {
     </div>`, (root) => {
     root.querySelector("#closeExpDetail").addEventListener("click", closeModal);
     const delBtn = root.querySelector("#deleteExpBtn");
-    if (delBtn) delBtn.addEventListener("click", () => withLoading(delBtn, async () => {
-      await Api.del(`/groups/${App.currentGroupId}/expenses/${e.id}`);
+    if (delBtn) delBtn.addEventListener("click", () => {
       closeModal();
-      toast("تم حذف المصروف");
-      renderRoute();
-    }));
+      confirmDialog("حذف المصروف", `سيتم حذف "${escapeHtml(e.name)}" نهائيًا. هل أنت متأكد؟`, async () => {
+        await Api.del(`/groups/${App.currentGroupId}/expenses/${e.id}`);
+        toast("تم حذف المصروف");
+        renderRoute();
+      });
+    });
   });
 }
 
@@ -614,10 +630,13 @@ screen("profile", (root) => {
       <div class="section-title" style="margin-top:26px">المجموعات</div>
       <div class="card-list">
         ${App.groups.map((g) => `
-          <div class="member-card" data-switch-group="${g.id}">
-            <div class="avatar">${escapeHtml(g.name[0] || "?")}</div>
-            <div class="info"><div class="name">${escapeHtml(g.name)}</div><div class="sub">${g.role === "admin" ? "مشرف" : "عضو"} — كود: ${g.invite_code}</div></div>
+          <div class="member-card">
+            <div class="avatar" data-switch-group="${g.id}" style="cursor:pointer">${escapeHtml(g.name[0] || "?")}</div>
+            <div class="info" data-switch-group="${g.id}" style="cursor:pointer">
+              <div class="name">${escapeHtml(g.name)}</div><div class="sub">${g.role === "admin" ? "مشرف" : "عضو"} — كود: ${g.invite_code}</div>
+            </div>
             ${g.id === App.currentGroupId ? `<span class="status-pill get">الحالية</span>` : ""}
+            ${g.role === "admin" ? `<button class="btn btn-danger" data-delete-group="${g.id}" data-group-name="${escapeHtml(g.name)}" style="padding:6px 10px;margin-inline-start:8px">🗑</button>` : ""}
           </div>`).join("")}
       </div>
 
@@ -636,6 +655,33 @@ screen("profile", (root) => {
     el.addEventListener("click", async () => {
       await selectGroup(el.dataset.switchGroup);
       location.hash = "#/home";
+    });
+  });
+  root.querySelectorAll("[data-delete-group]").forEach((btn) => {
+    btn.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      const groupId = btn.dataset.deleteGroup;
+      const groupName = btn.dataset.groupName;
+      confirmDialog(
+        "حذف المجموعة نهائيًا",
+        `سيتم حذف مجموعة "${groupName}" وكل بياناتها (الأعضاء، المصروفات، السجل) نهائيًا ولا يمكن التراجع عن هذا. هل أنت متأكد؟`,
+        () => withLoading(btn, async () => {
+          await Api.del(`/groups/${groupId}`);
+          App.groups = App.groups.filter((g) => g.id !== groupId);
+          toast("تم حذف المجموعة");
+          if (groupId === App.currentGroupId) {
+            if (App.groups.length) {
+              await selectGroup(App.groups[0].id);
+              location.hash = "#/home";
+            } else {
+              App.currentGroupId = null;
+              location.hash = "#/onboarding";
+            }
+          } else {
+            renderRoute();
+          }
+        })
+      );
     });
   });
   document.getElementById("logoutBtn").addEventListener("click", async () => {
@@ -841,8 +887,8 @@ screen("admin/period", async (root) => {
         <div class="label">الشهر الحالي</div>
         <div class="value">${current.period ? current.period.label : "—"} — ${current.period && current.period.status === "open" ? "مفتوح" : "مغلق"}</div>
       </div>
-      <button class="btn btn-block" id="closeMonthBtn" ${!current.period || current.period.status !== "open" ? "disabled" : ""}>إغلاق الشهر الحالي</button>
-      <button class="btn btn-primary btn-block" id="newMonthBtn" style="margin-top:8px">↻ بدء شهر جديد</button>
+      <button class="btn btn-primary btn-block" id="newMonthBtn">↻ إغلاق الشهر الحالي وبدء شهر جديد فارغ</button>
+      <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-top:8px">سيُقفل الحساب الحالي ويُحفظ في السجل تلقائيًا، ويبدأ حساب جديد فارغ بنفس الإيجار الحالي</div>
 
       <div class="section-title" style="margin-top:20px">السجل</div>
       <div class="card-list">
@@ -854,17 +900,19 @@ screen("admin/period", async (root) => {
       </div>
     </div>`;
 
-  document.getElementById("closeMonthBtn").addEventListener("click", () => {
-    confirmDialog("إغلاق الشهر", "لن يُسمح بإضافة أو تعديل مصروفات بعد الإغلاق. هل أنت متأكد؟", async () => {
-      await Api.post(`/groups/${App.currentGroupId}/period/close`, {});
-      toast("تم إغلاق الشهر"); renderRoute();
-    });
-  });
-  document.getElementById("newMonthBtn").addEventListener("click", () => {
-    confirmDialog("بدء شهر جديد", "سيتم إغلاق الحساب الحالي وبدء حساب جديد. ستبقى جميع البيانات السابقة محفوظة.", async () => {
-      await Api.post(`/groups/${App.currentGroupId}/period/new-month`, {});
-      toast("بدأ شهر جديد"); renderRoute();
-    });
+  const newMonthBtn = document.getElementById("newMonthBtn");
+  newMonthBtn.addEventListener("click", () => {
+    const hasOpen = current.period && current.period.status === "open";
+    confirmDialog(
+      "إغلاق الشهر وبدء شهر جديد",
+      hasOpen
+        ? "سيتم إغلاق الحساب الحالي وترحيله للسجل، وبدء حساب جديد فارغ فورًا. ستبقى جميع البيانات السابقة محفوظة."
+        : "سيتم بدء حساب جديد فارغ. ستبقى جميع البيانات السابقة محفوظة.",
+      () => withLoading(newMonthBtn, async () => {
+        await Api.post(`/groups/${App.currentGroupId}/period/new-month`, {});
+        toast("تم إغلاق الشهر وبدء شهر جديد"); renderRoute();
+      })
+    );
   });
 });
 
