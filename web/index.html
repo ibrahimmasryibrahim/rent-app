@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>حاسبة السكن المشترك</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#14120d">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div id="offlineBanner" class="offline-banner">⚠ لا يوجد اتصال — تُعرض آخر بيانات محفوظة</div>
+<header id="appHeader" class="app-header hidden">
+  <div>
+    <div class="greet" id="headerGreet">مرحبًا</div>
+    <div class="sub" id="headerSub"></div>
+  </div>
+  <button class="bell-btn" id="bellBtn">🔔<span id="bellBadge" class="bell-badge hidden">0</span></button>
+</header>
+
+<main id="screenRoot"></main>
+
+<nav id="bottomNav" class="bottom-nav hidden">
+  <button data-route="home"><span class="ic">🏠</span>الرئيسية</button>
+  <button data-route="expenses"><span class="ic">🧾</span>المصروفات</button>
+  <button data-route="notifications"><span class="ic">🔔</span>الإشعارات</button>
+  <button data-route="admin" id="navAdmin"><span class="ic">⚙️</span>الإدارة</button>
+  <button data-route="profile"><span class="ic">👤</span>حسابي</button>
+</nav>
+
+<div id="modalRoot"></div>
+<div id="toastRoot" class="toast"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/app.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
