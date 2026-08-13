@@ -111,13 +111,12 @@ function connectSocket() {
   App.socket.on("notification", (n) => {
     toast("🔔 " + n.title);
     refreshBellBadge();
-    if (App.route === "notifications") renderRoute();
   });
   ["ExpenseAdded", "ExpenseUpdated", "ExpenseDeleted", "RentUpdated", "MemberAdded", "MemberSuspended",
     "MemberReactivated", "MemberDeleted", "MembersReordered", "BalanceChanged", "MonthClosed", "NewMonthStarted"
   ].forEach((evt) => {
     App.socket.on(evt, () => {
-      if (["home", "expenses", "admin", "admin-members"].includes(App.route)) renderRoute();
+      if (App.route === "home") renderRoute();
     });
   });
   App.socket.on("GroupDeleted", async (data) => {
@@ -163,16 +162,14 @@ const routes = {};
 function screen(name, fn) { routes[name] = fn; }
 
 async function renderRoute() {
-  const hash = location.hash.replace(/^#\/?/, "") || "login";
-  const parts = hash.split("/");
-  const routeKey = parts[0] === "admin" && parts[1] ? "admin/" + parts[1] : parts[0];
-  App.route = parts[0]; // "admin" for any admin sub-page, used for bottom-nav active state
+  const routeKey = location.hash.replace(/^#\/?/, "") || "login";
+  App.route = routeKey;
   updateChrome();
   const root = document.getElementById("screenRoot");
   root.innerHTML = ["login", "onboarding"].includes(routeKey) ? "" : SKELETON_SCREEN;
   try {
     const fn = routes[routeKey] || routes["login"];
-    await fn(root, parts.slice(routeKey.includes("/") ? 2 : 1));
+    await fn(root);
   } catch (e) {
     if (e.status === 401) return;
     root.innerHTML = `<div class="screen"><div class="empty-hint">⚠ ${escapeHtml(e.message || "حدث خطأ")}</div></div>`;
@@ -182,25 +179,15 @@ window.addEventListener("hashchange", renderRoute);
 
 function updateChrome() {
   const authed = !!Api.getTokens().accessToken && !!App.me;
-  const inGroupScreens = ["home", "expenses", "notifications", "admin", "profile"].includes(App.route) ||
-    App.route.startsWith("admin");
-  document.getElementById("appHeader").classList.toggle("hidden", !authed || !inGroupScreens);
-  document.getElementById("bottomNav").classList.toggle("hidden", !authed || !App.currentGroupId || !inGroupScreens);
-  document.getElementById("navAdmin").classList.toggle("hidden", App.myRole !== "admin");
+  document.getElementById("appHeader").classList.toggle("hidden", !authed || App.route !== "home");
   if (App.me) {
     document.getElementById("headerGreet").textContent = App.me.name || App.me.phone;
     document.getElementById("headerSub").textContent = App.currentGroup ? App.currentGroup.name : "";
   }
-  document.querySelectorAll("#bottomNav button[data-route]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.route === App.route || (App.route.startsWith("admin") && btn.dataset.route === "admin"));
-  });
 }
 
-document.getElementById("bottomNav").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-route]");
-  if (btn) location.hash = "#/" + btn.dataset.route;
-});
-document.getElementById("bellBtn").addEventListener("click", () => (location.hash = "#/notifications"));
+document.getElementById("bellBtn").addEventListener("click", openNotificationsModal);
+document.getElementById("profileBtn").addEventListener("click", openProfileModal);
 
 /* ================= SCREEN: login ================= */
 // No verification code: the real gate is the group admin approving your
@@ -352,9 +339,14 @@ screen("onboarding", (root) => {
 /* ================= SCREEN: home ================= */
 
 screen("home", async (root) => {
-  const dash = await Api.get(`/groups/${App.currentGroupId}/dashboard`);
-  const membersData = await Api.get(`/groups/${App.currentGroupId}/members`);
+  const [dash, membersData, expensesData] = await Promise.all([
+    Api.get(`/groups/${App.currentGroupId}/dashboard`),
+    Api.get(`/groups/${App.currentGroupId}/members`),
+    Api.get(`/groups/${App.currentGroupId}/expenses`)
+  ]);
   const cls = dash.me ? dash.me.status : "even";
+  const isAdmin = App.myRole === "admin";
+  const grouped = groupByDay(expensesData.expenses);
 
   root.innerHTML = `
     <div class="screen">
@@ -370,14 +362,26 @@ screen("home", async (root) => {
         <div class="mini-stat"><div class="label">الفرق</div><div class="value">${dash.me ? fmtMoney(Math.abs(dash.me.dueFils)) : "—"}</div></div>
       </div>
 
+      ${isAdmin ? `
+      <div class="admin-quick-row" style="display:flex;gap:8px;margin:16px 0">
+        <button class="btn btn-primary" id="qaAddExpense" style="flex:1">+ مصروف</button>
+        <button class="btn" id="qaAddMember" style="flex:1">+ عضو</button>
+        <button class="btn" id="qaAdminPanel" style="flex:1">⚙ الإدارة</button>
+      </div>` : ""}
+
       <div class="section-title">أعضاء المجموعة <span class="link">${dash.membersCount} نشط</span></div>
       <div class="card-list" id="membersList"></div>
 
-      <div class="section-title">أحدث المصروفات <span class="link" id="seeAllExpenses">عرض الكل</span></div>
-      <div class="card-list" id="recentExpenses"></div>
+      <div class="section-title">المصروفات <span class="link" id="addExpenseLink">+ إضافة</span></div>
+      <div id="expenseFeed">${renderExpenseFeed(grouped, expensesData.expenses.length)}</div>
     </div>`;
 
-  document.getElementById("seeAllExpenses").addEventListener("click", () => (location.hash = "#/expenses"));
+  if (isAdmin) {
+    document.getElementById("qaAddExpense").addEventListener("click", openAddExpenseModal);
+    document.getElementById("qaAddMember").addEventListener("click", openAddMemberModal);
+    document.getElementById("qaAdminPanel").addEventListener("click", openAdminPanelModal);
+  }
+  document.getElementById("addExpenseLink").addEventListener("click", openAddExpenseModal);
 
   const membersList = document.getElementById("membersList");
   membersList.innerHTML = membersData.members.filter((m) => m.status === "active").map(memberCardHtml).join("") ||
@@ -386,10 +390,9 @@ screen("home", async (root) => {
     el.addEventListener("click", () => openMemberDetail(el.dataset.membership));
   });
 
-  const recent = document.getElementById("recentExpenses");
-  recent.innerHTML = dash.recentExpenses.length
-    ? dash.recentExpenses.map(expenseItemHtml).join("")
-    : `<div class="empty-hint">لا توجد مصروفات بعد</div>`;
+  root.querySelectorAll("[data-expense-id]").forEach((el) => {
+    el.addEventListener("click", () => openExpenseDetail(expensesData.expenses.find((e) => e.id === el.dataset.expenseId)));
+  });
 });
 
 function memberCardHtml(m) {
@@ -405,18 +408,6 @@ function memberCardHtml(m) {
         <div class="sub">${m.role === "admin" ? "مشرف" : "عضو"}</div>
       </div>
       <span class="status-pill ${pillCls}">${pillText}</span>
-    </div>`;
-}
-
-function expenseItemHtml(e) {
-  return `
-    <div class="expense-item">
-      <div class="icon">🧾</div>
-      <div class="info">
-        <div class="name">${escapeHtml(e.name || e.category)}</div>
-        <div class="meta">${escapeHtml(e.paidByName || e.paidByUserId)} · ${timeAgo(e.createdAt || e.created_at)}</div>
-      </div>
-      <div class="amount">${fmtMoney(e.amountFils || e.amount_fils)}</div>
     </div>`;
 }
 
@@ -450,23 +441,6 @@ async function openMemberDetail(membershipId) {
 }
 
 /* ================= SCREEN: expenses ================= */
-
-screen("expenses", async (root) => {
-  const data = await Api.get(`/groups/${App.currentGroupId}/expenses`);
-  const grouped = groupByDay(data.expenses);
-
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">المصروفات</div>
-      <div id="expenseFeed">${renderExpenseFeed(grouped, data.expenses.length)}</div>
-    </div>
-    <button class="fab" id="addExpenseFab" title="إضافة مصروف">+</button>`;
-
-  document.getElementById("addExpenseFab").addEventListener("click", openAddExpenseModal);
-  root.querySelectorAll("[data-expense-id]").forEach((el) => {
-    el.addEventListener("click", () => openExpenseDetail(data.expenses.find((e) => e.id === el.dataset.expenseId)));
-  });
-});
 
 function groupByDay(expenses) {
   const map = new Map();
@@ -563,7 +537,7 @@ function openExpenseDetail(e) {
   });
 }
 
-/* ================= SCREEN: notifications ================= */
+/* ================= notifications modal ================= */
 
 const NOTIF_FILTERS = [
   { key: "", label: "الكل" }, { key: "financial", label: "مالية" }, { key: "expenses", label: "المصروفات" },
@@ -571,34 +545,32 @@ const NOTIF_FILTERS = [
 ];
 let currentNotifFilter = "";
 
-screen("notifications", async (root) => {
+async function openNotificationsModal() {
   const data = await Api.get(`/notifications${currentNotifFilter ? "?filter=" + currentNotifFilter : ""}`);
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">الإشعارات <span class="link" id="markAllRead">تحديد الكل كمقروء</span></div>
-      <div class="chip-row">${NOTIF_FILTERS.map((f) => `<button class="chip ${f.key === currentNotifFilter ? "active" : ""}" data-filter="${f.key}">${f.label}</button>`).join("")}</div>
-      <div id="notifList">${data.notifications.length ? data.notifications.map(notifItemHtml).join("") : `<div class="empty-hint">لا توجد إشعارات</div>`}</div>
-    </div>`;
-
-  root.querySelectorAll(".chip").forEach((chip) => {
-    chip.addEventListener("click", () => { currentNotifFilter = chip.dataset.filter; renderRoute(); });
-  });
-  document.getElementById("markAllRead").addEventListener("click", async () => {
-    await Api.patch("/notifications/read-all");
-    refreshBellBadge();
-    renderRoute();
-  });
-  root.querySelectorAll("[data-notif-id]").forEach((el) => {
-    el.addEventListener("click", async () => {
-      await Api.patch(`/notifications/${el.dataset.notifId}/read`);
+  openSheet(`
+    <div class="section-title">الإشعارات <span class="link" id="markAllRead">تحديد الكل كمقروء</span></div>
+    <div class="chip-row">${NOTIF_FILTERS.map((f) => `<button class="chip ${f.key === currentNotifFilter ? "active" : ""}" data-filter="${f.key}">${f.label}</button>`).join("")}</div>
+    <div id="notifList">${data.notifications.length ? data.notifications.map(notifItemHtml).join("") : `<div class="empty-hint">لا توجد إشعارات</div>`}</div>`,
+  (root) => {
+    root.querySelectorAll(".chip").forEach((chip) => {
+      chip.addEventListener("click", () => { currentNotifFilter = chip.dataset.filter; openNotificationsModal(); });
+    });
+    document.getElementById("markAllRead").addEventListener("click", async () => {
+      await Api.patch("/notifications/read-all");
       refreshBellBadge();
-      const notif = data.notifications.find((n) => n.id === el.dataset.notifId);
-      if (notif.related_entity_type === "expense") location.hash = "#/expenses";
-      else if (notif.type === "join_request") location.hash = "#/admin/members";
-      else renderRoute();
+      openNotificationsModal();
+    });
+    root.querySelectorAll("[data-notif-id]").forEach((el) => {
+      el.addEventListener("click", async () => {
+        await Api.patch(`/notifications/${el.dataset.notifId}/read`);
+        refreshBellBadge();
+        const notif = data.notifications.find((n) => n.id === el.dataset.notifId);
+        if (notif.type === "join_request") { closeModal(); openRequestsModal(); }
+        else openNotificationsModal();
+      });
     });
   });
-});
+}
 
 const NOTIF_ICONS = {
   expense_added: "🧾", expense_updated: "✏️", expense_deleted: "🗑️", rent_updated: "🏠",
@@ -617,87 +589,86 @@ function notifItemHtml(n) {
     </div>`;
 }
 
-/* ================= SCREEN: profile ================= */
+/* ================= profile modal ================= */
 
-screen("profile", (root) => {
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">حسابي</div>
-      <div class="field"><label>الاسم</label><input id="profileName" value="${escapeHtml(App.me.name || "")}"></div>
-      <div class="field"><label>رقم الهاتف</label><input value="${escapeHtml(App.me.phone)}" disabled dir="ltr"></div>
-      <button class="btn btn-primary btn-block" id="saveProfileBtn">حفظ</button>
+function openProfileModal() {
+  openSheet(`
+    <h3>حسابي</h3>
+    <div class="field"><label>الاسم</label><input id="profileName" value="${escapeHtml(App.me.name || "")}"></div>
+    <div class="field"><label>رقم الهاتف</label><input value="${escapeHtml(App.me.phone)}" disabled dir="ltr"></div>
+    <button class="btn btn-primary btn-block" id="saveProfileBtn">حفظ</button>
 
-      <div class="section-title" style="margin-top:26px">المجموعات</div>
-      <div class="card-list">
-        ${App.groups.map((g) => `
-          <div class="member-card">
-            <div class="avatar" data-switch-group="${g.id}" style="cursor:pointer">${escapeHtml(g.name[0] || "?")}</div>
-            <div class="info" data-switch-group="${g.id}" style="cursor:pointer">
-              <div class="name">${escapeHtml(g.name)}</div><div class="sub">${g.role === "admin" ? "مشرف" : "عضو"} — كود: ${g.invite_code}</div>
-            </div>
-            ${g.id === App.currentGroupId ? `<span class="status-pill get">الحالية</span>` : ""}
-            ${g.role === "admin" ? `<button class="btn btn-danger" data-delete-group="${g.id}" data-group-name="${escapeHtml(g.name)}" style="padding:6px 10px;margin-inline-start:8px">🗑</button>` : ""}
-          </div>`).join("")}
-      </div>
+    <div class="section-title" style="margin-top:26px">المجموعات</div>
+    <div class="card-list">
+      ${App.groups.map((g) => `
+        <div class="member-card">
+          <div class="avatar" data-switch-group="${g.id}" style="cursor:pointer">${escapeHtml(g.name[0] || "?")}</div>
+          <div class="info" data-switch-group="${g.id}" style="cursor:pointer">
+            <div class="name">${escapeHtml(g.name)}</div><div class="sub">${g.role === "admin" ? "مشرف" : "عضو"} — كود: ${g.invite_code}</div>
+          </div>
+          ${g.id === App.currentGroupId ? `<span class="status-pill get">الحالية</span>` : ""}
+          ${g.role === "admin" ? `<button class="btn btn-danger" data-delete-group="${g.id}" data-group-name="${escapeHtml(g.name)}" style="padding:6px 10px;margin-inline-start:8px">🗑</button>` : ""}
+        </div>`).join("")}
+    </div>
 
-      <button class="btn btn-danger btn-block" id="logoutBtn" style="margin-top:26px">تسجيل الخروج</button>
-    </div>`;
-
-  const saveProfileBtn = document.getElementById("saveProfileBtn");
-  saveProfileBtn.addEventListener("click", () => withLoading(saveProfileBtn, async () => {
-    const name = document.getElementById("profileName").value.trim();
-    const res = await Api.patch("/auth/me", { name });
-    App.me = res; Api.setMe(res);
-    toast("تم الحفظ");
-    updateChrome();
-  }));
-  root.querySelectorAll("[data-switch-group]").forEach((el) => {
-    el.addEventListener("click", async () => {
-      await selectGroup(el.dataset.switchGroup);
-      location.hash = "#/home";
+    <button class="btn btn-danger btn-block" id="logoutBtn" style="margin-top:26px">تسجيل الخروج</button>`,
+  (root) => {
+    const saveProfileBtn = root.querySelector("#saveProfileBtn");
+    saveProfileBtn.addEventListener("click", () => withLoading(saveProfileBtn, async () => {
+      const name = root.querySelector("#profileName").value.trim();
+      const res = await Api.patch("/auth/me", { name });
+      App.me = res; Api.setMe(res);
+      toast("تم الحفظ");
+      updateChrome();
+    }));
+    root.querySelectorAll("[data-switch-group]").forEach((el) => {
+      el.addEventListener("click", async () => {
+        closeModal();
+        await selectGroup(el.dataset.switchGroup);
+        renderRoute();
+      });
     });
-  });
-  root.querySelectorAll("[data-delete-group]").forEach((btn) => {
-    btn.addEventListener("click", (evt) => {
-      evt.stopPropagation();
-      const groupId = btn.dataset.deleteGroup;
-      const groupName = btn.dataset.groupName;
-      confirmDialog(
-        "حذف المجموعة نهائيًا",
-        `سيتم حذف مجموعة "${groupName}" وكل بياناتها (الأعضاء، المصروفات، السجل) نهائيًا ولا يمكن التراجع عن هذا. هل أنت متأكد؟`,
-        () => withLoading(btn, async () => {
-          await Api.del(`/groups/${groupId}`);
-          App.groups = App.groups.filter((g) => g.id !== groupId);
-          toast("تم حذف المجموعة");
-          if (groupId === App.currentGroupId) {
-            if (App.groups.length) {
-              await selectGroup(App.groups[0].id);
-              location.hash = "#/home";
+    root.querySelectorAll("[data-delete-group]").forEach((btn) => {
+      btn.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        const groupId = btn.dataset.deleteGroup;
+        const groupName = btn.dataset.groupName;
+        confirmDialog(
+          "حذف المجموعة نهائيًا",
+          `سيتم حذف مجموعة "${groupName}" وكل بياناتها (الأعضاء، المصروفات، السجل) نهائيًا ولا يمكن التراجع عن هذا. هل أنت متأكد؟`,
+          async () => {
+            await Api.del(`/groups/${groupId}`);
+            App.groups = App.groups.filter((g) => g.id !== groupId);
+            toast("تم حذف المجموعة");
+            if (groupId === App.currentGroupId) {
+              if (App.groups.length) {
+                await selectGroup(App.groups[0].id);
+                renderRoute();
+              } else {
+                App.currentGroupId = null;
+                location.hash = "#/onboarding";
+              }
             } else {
-              App.currentGroupId = null;
-              location.hash = "#/onboarding";
+              renderRoute();
             }
-          } else {
-            renderRoute();
           }
-        })
-      );
+        );
+      });
     });
-  });
-  document.getElementById("logoutBtn").addEventListener("click", async () => {
+    root.querySelector("#logoutBtn").addEventListener("click", async () => {
     const { refreshToken } = Api.getTokens();
     try { await Api.post("/auth/logout", { refreshToken }); } catch (e) {}
     Api.clearTokens();
     if (App.socket) App.socket.disconnect();
     location.hash = "#/login";
     location.reload();
+    });
   });
-});
+}
 
-/* ================= SCREEN: admin dashboard ================= */
+/* ================= admin panel modal ================= */
 
-screen("admin", async (root) => {
-  if (App.myRole !== "admin") { root.innerHTML = `<div class="screen"><div class="empty-hint">هذه الصفحة للمشرف فقط</div></div>`; return; }
+async function openAdminPanelModal() {
   const dash = await Api.get(`/groups/${App.currentGroupId}/dashboard`);
   const membersData = await Api.get(`/groups/${App.currentGroupId}/members`);
   const active = membersData.members.filter((m) => m.status === "active").length;
@@ -705,40 +676,47 @@ screen("admin", async (root) => {
   const owed = membersData.members.filter((m) => m.status_financial === "pay").reduce((s, m) => s + m.dueFils, 0);
   const credit = membersData.members.filter((m) => m.status_financial === "get").reduce((s, m) => s - m.dueFils, 0);
 
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">لوحة المشرف</div>
-      <div class="kpi-grid">
-        <div class="kpi-card"><div class="label">الإيجار الشهري</div><div class="value">${fmtMoney(dash.group.rent_fils)}</div></div>
-        <div class="kpi-card"><div class="label">الأعضاء النشطون</div><div class="value">${active} <span style="font-size:.7rem;color:var(--text-soft)">(${suspended} معلّق)</span></div></div>
-        <div class="kpi-card"><div class="label">إجمالي المصروفات</div><div class="value">${fmtMoney(dash.totalExpensesFils)}</div></div>
-        <div class="kpi-card"><div class="label">حالة الشهر</div><div class="value" style="font-size:.85rem">${dash.period ? dash.period.label : "—"} · ${dash.period && dash.period.status === "open" ? "مفتوح" : "مغلق"}</div></div>
-        <div class="kpi-card"><div class="label">مستحق التحصيل</div><div class="value" style="color:var(--danger)">${fmtMoney(owed)}</div></div>
-        <div class="kpi-card"><div class="label">مستحق الاسترداد</div><div class="value" style="color:var(--success)">${fmtMoney(credit)}</div></div>
-      </div>
+  const adminActions = {
+    members: openMembersManageModal, rent: openRentModal, period: openPeriodModal,
+    requests: openRequestsModal, audit: openAuditModal, settings: openSettingsModal
+  };
+  openSheet(`
+    <h3>لوحة المشرف</h3>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="label">الإيجار الشهري</div><div class="value">${fmtMoney(dash.group.rent_fils)}</div></div>
+      <div class="kpi-card"><div class="label">الأعضاء النشطون</div><div class="value">${active} <span style="font-size:.7rem;color:var(--text-soft)">(${suspended} معلّق)</span></div></div>
+      <div class="kpi-card"><div class="label">إجمالي المصروفات</div><div class="value">${fmtMoney(dash.totalExpensesFils)}</div></div>
+      <div class="kpi-card"><div class="label">حالة الشهر</div><div class="value" style="font-size:.85rem">${dash.period ? dash.period.label : "—"} · ${dash.period && dash.period.status === "open" ? "مفتوح" : "مغلق"}</div></div>
+      <div class="kpi-card"><div class="label">مستحق التحصيل</div><div class="value" style="color:var(--danger)">${fmtMoney(owed)}</div></div>
+      <div class="kpi-card"><div class="label">مستحق الاسترداد</div><div class="value" style="color:var(--success)">${fmtMoney(credit)}</div></div>
+    </div>
 
-      <div class="admin-menu-item" data-nav="admin/members"><span class="ic">👥</span><span class="label">إدارة الأعضاء</span><span class="chev">‹</span></div>
-      <div class="admin-menu-item" data-nav="admin/rent"><span class="ic">🏠</span><span class="label">الإيجار الشهري</span><span class="chev">‹</span></div>
-      <div class="admin-menu-item" data-nav="admin/period"><span class="ic">📅</span><span class="label">الشهر المالي</span><span class="chev">‹</span></div>
-      <div class="admin-menu-item" data-nav="admin/requests"><span class="ic">📥</span><span class="label">طلبات الانضمام</span><span class="chev">‹</span></div>
-      <div class="admin-menu-item" data-nav="admin/audit"><span class="ic">📜</span><span class="label">سجل العمليات</span><span class="chev">‹</span></div>
-      <div class="admin-menu-item" data-nav="admin/settings"><span class="ic">⚙️</span><span class="label">إعدادات المجموعة</span><span class="chev">‹</span></div>
-    </div>`;
-  root.querySelectorAll("[data-nav]").forEach((el) => el.addEventListener("click", () => (location.hash = "#/" + el.dataset.nav)));
-});
+    <div class="admin-menu-item" data-nav="members"><span class="ic">👥</span><span class="label">إدارة الأعضاء</span><span class="chev">‹</span></div>
+    <div class="admin-menu-item" data-nav="rent"><span class="ic">🏠</span><span class="label">الإيجار الشهري</span><span class="chev">‹</span></div>
+    <div class="admin-menu-item" data-nav="period"><span class="ic">📅</span><span class="label">الشهر المالي</span><span class="chev">‹</span></div>
+    <div class="admin-menu-item" data-nav="requests"><span class="ic">📥</span><span class="label">طلبات الانضمام</span><span class="chev">‹</span></div>
+    <div class="admin-menu-item" data-nav="audit"><span class="ic">📜</span><span class="label">سجل العمليات</span><span class="chev">‹</span></div>
+    <div class="admin-menu-item" data-nav="settings"><span class="ic">⚙️</span><span class="label">إعدادات المجموعة</span><span class="chev">‹</span></div>`,
+  (root) => {
+    root.querySelectorAll("[data-nav]").forEach((el) => el.addEventListener("click", () => {
+      closeModal();
+      adminActions[el.dataset.nav]();
+    }));
+  });
+}
 
-/* ---- admin/members: full management with drag-drop + action menu ---- */
+/* ---- members management modal: drag-drop reorder + action menu ---- */
 
-screen("admin/members", async (root) => {
+async function openMembersManageModal() {
   const data = await Api.get(`/groups/${App.currentGroupId}/members`);
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">إدارة الأعضاء <span class="link" id="addMemberLink">+ إضافة</span></div>
-      <div id="pplList"></div>
-    </div>`;
-  document.getElementById("addMemberLink").addEventListener("click", openAddMemberModal);
-  renderPplList(root, data.members);
-});
+  openSheet(`
+    <h3>إدارة الأعضاء <span class="link" id="addMemberLink">+ إضافة</span></h3>
+    <div id="pplList"></div>`,
+  (root) => {
+    root.querySelector("#addMemberLink").addEventListener("click", openAddMemberModal);
+    renderPplList(root, data.members);
+  });
+}
 
 function renderPplList(root, members) {
   const list = root.querySelector("#pplList");
@@ -767,7 +745,7 @@ function renderPplList(root, members) {
       ids.splice(fromIdx, 1);
       ids.splice(toIdx, 0, dragSrc);
       await Api.patch(`/groups/${App.currentGroupId}/members/reorder`, { orderedMembershipIds: ids });
-      renderRoute();
+      openMembersManageModal();
     });
   });
 
@@ -855,95 +833,94 @@ function openAddMemberModal() {
   });
 }
 
-/* ---- admin/rent ---- */
+/* ---- rent modal ---- */
 
-screen("admin/rent", async (root) => {
+async function openRentModal() {
   const group = (await Api.get(`/groups/${App.currentGroupId}`)).group;
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">الإيجار الشهري</div>
-      <div class="field"><label>القيمة الحالية</label><input id="rentInput" type="number" min="0" step="0.001" value="${(group.rent_fils / 1000).toFixed(3)}"></div>
-      <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-bottom:14px">سيُعاد حساب نصيب كل عضو نشط تلقائيًا فور الحفظ</div>
-      <button class="btn btn-primary btn-block" id="saveRentBtn">حفظ</button>
-    </div>`;
-  const saveRentBtn = document.getElementById("saveRentBtn");
-  saveRentBtn.addEventListener("click", () => withLoading(saveRentBtn, async () => {
-    await Api.patch(`/groups/${App.currentGroupId}/rent`, { rent: document.getElementById("rentInput").value });
-    toast("تم تحديث الإيجار"); location.hash = "#/admin";
-  }));
-});
+  openSheet(`
+    <h3>الإيجار الشهري</h3>
+    <div class="field"><label>القيمة الحالية</label><input id="rentInput" type="number" min="0" step="0.001" value="${(group.rent_fils / 1000).toFixed(3)}"></div>
+    <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-bottom:14px">سيُعاد حساب نصيب كل عضو نشط تلقائيًا فور الحفظ</div>
+    <button class="btn btn-primary btn-block" id="saveRentBtn">حفظ</button>`,
+  (root) => {
+    const saveRentBtn = root.querySelector("#saveRentBtn");
+    saveRentBtn.addEventListener("click", () => withLoading(saveRentBtn, async () => {
+      await Api.patch(`/groups/${App.currentGroupId}/rent`, { rent: root.querySelector("#rentInput").value });
+      toast("تم تحديث الإيجار"); closeModal(); renderRoute();
+    }));
+  });
+}
 
-/* ---- admin/period ---- */
+/* ---- financial period modal ---- */
 
-screen("admin/period", async (root) => {
+async function openPeriodModal() {
   const [history, current] = await Promise.all([
     Api.get(`/groups/${App.currentGroupId}/period/history`),
     Api.get(`/groups/${App.currentGroupId}/dashboard`)
   ]);
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">الشهر المالي</div>
-      <div class="kpi-card" style="margin-bottom:16px">
-        <div class="label">الشهر الحالي</div>
-        <div class="value">${current.period ? current.period.label : "—"} — ${current.period && current.period.status === "open" ? "مفتوح" : "مغلق"}</div>
-      </div>
-      <button class="btn btn-primary btn-block" id="newMonthBtn">↻ إغلاق الشهر الحالي وبدء شهر جديد فارغ</button>
-      <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-top:8px">سيُقفل الحساب الحالي ويُحفظ في السجل تلقائيًا، ويبدأ حساب جديد فارغ بنفس الإيجار الحالي</div>
+  openSheet(`
+    <h3>الشهر المالي</h3>
+    <div class="kpi-card" style="margin-bottom:16px">
+      <div class="label">الشهر الحالي</div>
+      <div class="value">${current.period ? current.period.label : "—"} — ${current.period && current.period.status === "open" ? "مفتوح" : "مغلق"}</div>
+    </div>
+    <button class="btn btn-primary btn-block" id="newMonthBtn">↻ إغلاق الشهر الحالي وبدء شهر جديد فارغ</button>
+    <div class="hint" style="color:var(--text-soft);font-size:.78rem;margin-top:8px">سيُقفل الحساب الحالي ويُحفظ في السجل تلقائيًا، ويبدأ حساب جديد فارغ بنفس الإيجار الحالي</div>
 
-      <div class="section-title" style="margin-top:20px">السجل</div>
-      <div class="card-list">
-        ${history.periods.map((p) => `
-          <div class="member-card" style="cursor:default">
-            <div class="info"><div class="name">${escapeHtml(p.label)}</div><div class="sub">الإيجار: ${fmtMoney(p.rent_fils_snapshot)}</div></div>
-            <span class="status-pill ${p.status === "open" ? "get" : "even"}">${p.status === "open" ? "مفتوح" : "مغلق"}</span>
-          </div>`).join("")}
-      </div>
-    </div>`;
-
-  const newMonthBtn = document.getElementById("newMonthBtn");
-  newMonthBtn.addEventListener("click", () => {
-    const hasOpen = current.period && current.period.status === "open";
-    confirmDialog(
-      "إغلاق الشهر وبدء شهر جديد",
-      hasOpen
-        ? "سيتم إغلاق الحساب الحالي وترحيله للسجل، وبدء حساب جديد فارغ فورًا. ستبقى جميع البيانات السابقة محفوظة."
-        : "سيتم بدء حساب جديد فارغ. ستبقى جميع البيانات السابقة محفوظة.",
-      () => withLoading(newMonthBtn, async () => {
-        await Api.post(`/groups/${App.currentGroupId}/period/new-month`, {});
-        toast("تم إغلاق الشهر وبدء شهر جديد"); renderRoute();
-      })
-    );
+    <div class="section-title" style="margin-top:20px">السجل</div>
+    <div class="card-list">
+      ${history.periods.map((p) => `
+        <div class="member-card" style="cursor:default">
+          <div class="info"><div class="name">${escapeHtml(p.label)}</div><div class="sub">الإيجار: ${fmtMoney(p.rent_fils_snapshot)}</div></div>
+          <span class="status-pill ${p.status === "open" ? "get" : "even"}">${p.status === "open" ? "مفتوح" : "مغلق"}</span>
+        </div>`).join("")}
+    </div>`,
+  (root) => {
+    const newMonthBtn = root.querySelector("#newMonthBtn");
+    newMonthBtn.addEventListener("click", () => {
+      const hasOpen = current.period && current.period.status === "open";
+      confirmDialog(
+        "إغلاق الشهر وبدء شهر جديد",
+        hasOpen
+          ? "سيتم إغلاق الحساب الحالي وترحيله للسجل، وبدء حساب جديد فارغ فورًا. ستبقى جميع البيانات السابقة محفوظة."
+          : "سيتم بدء حساب جديد فارغ. ستبقى جميع البيانات السابقة محفوظة.",
+        async () => {
+          await Api.post(`/groups/${App.currentGroupId}/period/new-month`, {});
+          toast("تم إغلاق الشهر وبدء شهر جديد"); renderRoute();
+        }
+      );
+    });
   });
-});
+}
 
-/* ---- admin/requests ---- */
+/* ---- join requests modal ---- */
 
-screen("admin/requests", async (root) => {
+async function openRequestsModal() {
   const data = await Api.get(`/groups/${App.currentGroupId}/join-requests`);
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">طلبات الانضمام</div>
-      <div class="card-list" id="reqList">
-        ${data.requests.length ? data.requests.map((r) => `
-          <div class="member-card" style="cursor:default">
-            <div class="avatar">${escapeHtml(initials(r.name, r.phone))}</div>
-            <div class="info"><div class="name">${escapeHtml(r.name || r.phone)}</div></div>
-            <button class="btn btn-primary" data-approve="${r.id}" style="padding:6px 12px">قبول</button>
-            <button class="btn btn-danger" data-reject="${r.id}" style="padding:6px 12px">رفض</button>
-          </div>`).join("") : `<div class="empty-hint">لا توجد طلبات معلّقة</div>`}
-      </div>
-    </div>`;
-  root.querySelectorAll("[data-approve]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
-    await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.approve}/approve`, {});
-    toast("تم القبول"); renderRoute();
-  })));
-  root.querySelectorAll("[data-reject]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
-    await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.reject}/reject`, {});
-    toast("تم الرفض"); renderRoute();
-  })));
-});
+  openSheet(`
+    <h3>طلبات الانضمام</h3>
+    <div class="card-list" id="reqList">
+      ${data.requests.length ? data.requests.map((r) => `
+        <div class="member-card" style="cursor:default">
+          <div class="avatar">${escapeHtml(initials(r.name, r.phone))}</div>
+          <div class="info"><div class="name">${escapeHtml(r.name || r.phone)}</div></div>
+          <button class="btn btn-primary" data-approve="${r.id}" style="padding:6px 12px">قبول</button>
+          <button class="btn btn-danger" data-reject="${r.id}" style="padding:6px 12px">رفض</button>
+        </div>`).join("") : `<div class="empty-hint">لا توجد طلبات معلّقة</div>`}
+    </div>`,
+  (root) => {
+    root.querySelectorAll("[data-approve]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
+      await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.approve}/approve`, {});
+      toast("تم القبول"); openRequestsModal();
+    })));
+    root.querySelectorAll("[data-reject]").forEach((btn) => btn.addEventListener("click", () => withLoading(btn, async () => {
+      await Api.patch(`/groups/${App.currentGroupId}/join-requests/${btn.dataset.reject}/reject`, {});
+      toast("تم الرفض"); openRequestsModal();
+    })));
+  });
+}
 
-/* ---- admin/audit ---- */
+/* ---- audit log modal ---- */
 
 const AUDIT_LABELS = {
   member_added: "أضاف عضوًا", member_suspended: "علّق عضوًا", member_reactivated: "أعاد تفعيل عضو",
@@ -953,57 +930,55 @@ const AUDIT_LABELS = {
   join_request_approved: "قبل طلب انضمام", join_request_rejected: "رفض طلب انضمام", member_joined_direct: "انضم للمجموعة"
 };
 
-screen("admin/audit", async (root) => {
+async function openAuditModal() {
   const data = await Api.get(`/groups/${App.currentGroupId}/audit-log`);
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">سجل العمليات</div>
-      <div class="card-list">
-        ${data.entries.length ? data.entries.map((e) => `
-          <div class="expense-item">
-            <div class="icon">📜</div>
-            <div class="info">
-              <div class="name">${escapeHtml(e.actor_name || "—")} ${AUDIT_LABELS[e.action] || e.action}</div>
-              <div class="meta">${timeAgo(e.created_at)}</div>
-            </div>
-          </div>`).join("") : `<div class="empty-hint">لا يوجد سجل بعد</div>`}
-      </div>
-    </div>`;
-});
+  openSheet(`
+    <h3>سجل العمليات</h3>
+    <div class="card-list">
+      ${data.entries.length ? data.entries.map((e) => `
+        <div class="expense-item">
+          <div class="icon">📜</div>
+          <div class="info">
+            <div class="name">${escapeHtml(e.actor_name || "—")} ${AUDIT_LABELS[e.action] || e.action}</div>
+            <div class="meta">${timeAgo(e.created_at)}</div>
+          </div>
+        </div>`).join("") : `<div class="empty-hint">لا يوجد سجل بعد</div>`}
+    </div>`);
+}
 
-/* ---- admin/settings ---- */
+/* ---- group settings modal ---- */
 
-screen("admin/settings", async (root) => {
+async function openSettingsModal() {
   const group = (await Api.get(`/groups/${App.currentGroupId}`)).group;
-  root.innerHTML = `
-    <div class="screen">
-      <div class="section-title">إعدادات المجموعة</div>
-      <div class="field">
-        <label>من يستطيع إضافة مصروف؟</label>
-        <select id="permSelect">
-          <option value="admin_only" ${group.expense_add_permission === "admin_only" ? "selected" : ""}>المشرف فقط</option>
-          <option value="all_members" ${group.expense_add_permission === "all_members" ? "selected" : ""}>جميع الأعضاء</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>الانضمام يحتاج موافقة؟</label>
-        <select id="approvalSelect">
-          <option value="1" ${group.join_requires_approval ? "selected" : ""}>نعم</option>
-          <option value="0" ${!group.join_requires_approval ? "selected" : ""}>لا، انضمام مباشر</option>
-        </select>
-      </div>
-      <div class="field"><label>كود الدعوة</label><input value="${group.invite_code}" disabled dir="ltr"></div>
-      <button class="btn btn-primary btn-block" id="saveSettingsBtn">حفظ</button>
-    </div>`;
-  const saveSettingsBtn = document.getElementById("saveSettingsBtn");
-  saveSettingsBtn.addEventListener("click", () => withLoading(saveSettingsBtn, async () => {
-    await Api.patch(`/groups/${App.currentGroupId}/settings`, {
-      expenseAddPermission: document.getElementById("permSelect").value,
-      joinRequiresApproval: document.getElementById("approvalSelect").value === "1"
-    });
-    toast("تم الحفظ"); location.hash = "#/admin";
-  }));
-});
+  openSheet(`
+    <h3>إعدادات المجموعة</h3>
+    <div class="field">
+      <label>من يستطيع إضافة مصروف؟</label>
+      <select id="permSelect">
+        <option value="admin_only" ${group.expense_add_permission === "admin_only" ? "selected" : ""}>المشرف فقط</option>
+        <option value="all_members" ${group.expense_add_permission === "all_members" ? "selected" : ""}>جميع الأعضاء</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>الانضمام يحتاج موافقة؟</label>
+      <select id="approvalSelect">
+        <option value="1" ${group.join_requires_approval ? "selected" : ""}>نعم</option>
+        <option value="0" ${!group.join_requires_approval ? "selected" : ""}>لا، انضمام مباشر</option>
+      </select>
+    </div>
+    <div class="field"><label>كود الدعوة</label><input value="${group.invite_code}" disabled dir="ltr"></div>
+    <button class="btn btn-primary btn-block" id="saveSettingsBtn">حفظ</button>`,
+  (root) => {
+    const saveSettingsBtn = root.querySelector("#saveSettingsBtn");
+    saveSettingsBtn.addEventListener("click", () => withLoading(saveSettingsBtn, async () => {
+      await Api.patch(`/groups/${App.currentGroupId}/settings`, {
+        expenseAddPermission: root.querySelector("#permSelect").value,
+        joinRequiresApproval: root.querySelector("#approvalSelect").value === "1"
+      });
+      toast("تم الحفظ"); closeModal(); renderRoute();
+    }));
+  });
+}
 
 /* ================= boot ================= */
 // The free hosting tier sleeps after inactivity and can take 30-50s to wake on

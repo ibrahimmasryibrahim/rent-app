@@ -23,18 +23,13 @@
     <div class="greet" id="headerGreet">مرحبًا</div>
     <div class="sub" id="headerSub"></div>
   </div>
-  <button class="bell-btn" id="bellBtn">🔔<span id="bellBadge" class="bell-badge hidden">0</span></button>
+  <div style="display:flex;gap:6px">
+    <button class="bell-btn" id="bellBtn">🔔<span id="bellBadge" class="bell-badge hidden">0</span></button>
+    <button class="bell-btn" id="profileBtn">👤</button>
+  </div>
 </header>
 
 <main id="screenRoot"></main>
-
-<nav id="bottomNav" class="bottom-nav hidden">
-  <button data-route="home"><span class="ic">🏠</span>الرئيسية</button>
-  <button data-route="expenses"><span class="ic">🧾</span>المصروفات</button>
-  <button data-route="notifications"><span class="ic">🔔</span>الإشعارات</button>
-  <button data-route="admin" id="navAdmin"><span class="ic">⚙️</span>الإدارة</button>
-  <button data-route="profile"><span class="ic">👤</span>حسابي</button>
-</nav>
 
 <div id="modalRoot"></div>
 <div id="toastRoot" class="toast"></div>

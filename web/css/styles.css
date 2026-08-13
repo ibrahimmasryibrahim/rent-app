@@ -38,7 +38,6 @@ body{
   background:var(--bg); color:var(--text);
   font-family:"Noto Sans Arabic","Segoe UI","Tahoma",system-ui,sans-serif;
   line-height:1.5; -webkit-font-smoothing:antialiased;
-  padding-bottom:70px; /* space for bottom nav */
   min-height:100vh;
 }
 button,input,select,textarea{font-family:inherit}
@@ -140,18 +139,6 @@ a{color:inherit}
 .brand-hero h1{font-size:1.3rem; margin:8px 0 2px}
 .brand-hero p{color:var(--text-soft); font-size:.85rem; margin:0}
 
-.bottom-nav{
-  position:fixed; bottom:0; right:0; left:0; z-index:40; background:var(--surface); border-top:1px solid var(--border);
-  display:flex; padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-}
-.bottom-nav button{
-  flex:1; background:transparent; border:none; display:flex; flex-direction:column; align-items:center; gap:2px;
-  padding:6px 2px; color:var(--text-soft); font-size:.68rem; font-weight:700; border-radius:10px;
-}
-.bottom-nav button .ic{font-size:1.15rem}
-.bottom-nav button.active{color:var(--primary-dark)}
-.bottom-nav button.active .ic{filter:drop-shadow(0 0 0 var(--primary))}
-
 .modal-overlay{position:fixed; inset:0; background:rgba(10,12,20,.55); display:flex; align-items:flex-end; justify-content:center; z-index:100}
 .modal-sheet{background:var(--surface); border-radius:18px 18px 0 0; width:100%; max-width:520px; max-height:88vh; overflow:auto; padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
 .modal-sheet h3{margin:0 0 14px; font-size:1.05rem}
@@ -194,16 +181,11 @@ a{color:inherit}
 
 .empty-hint{padding:26px; text-align:center; color:var(--text-soft); font-size:.85rem}
 .toast{
-  position:fixed; bottom:80px; left:50%; transform:translate(-50%,20px); background:var(--text); color:var(--surface);
+  position:fixed; bottom:24px; left:50%; transform:translate(-50%,20px); background:var(--text); color:var(--surface);
   padding:10px 18px; border-radius:100px; font-size:.83rem; font-weight:600; box-shadow:var(--shadow-md);
   opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:300; max-width:90vw; text-align:center;
 }
 .toast.show{opacity:1; transform:translate(-50%,0)}
-
-.fab{
-  position:fixed; bottom:82px; left:16px; z-index:35; background:var(--primary); color:#14120d; border:none;
-  width:52px; height:52px; border-radius:50%; font-size:1.4rem; box-shadow:var(--shadow-md);
-}
 
 .chip-row{display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:10px}
 .chip{
