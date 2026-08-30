@@ -1,0 +1,4 @@
+*.cmd text eol=crlf
+*.sln text eol=crlf
+*.cs  text eol=lf
+*.xaml text eol=lf

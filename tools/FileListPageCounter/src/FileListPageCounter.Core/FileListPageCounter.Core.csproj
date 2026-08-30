@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <RootNamespace>FileListPageCounter.Core</RootNamespace>
+    <AssemblyName>FileListPageCounter.Core</AssemblyName>
+    <!-- Arabic literals live in the source files; force UTF-8 decoding regardless of BOM. -->
+    <CodePage>65001</CodePage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Real DOCX (Open XML) generation. -->
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
+    <!-- Read-only, fully managed PDF parser used only to read the page tree. -->
+    <PackageReference Include="PdfPig" Version="0.1.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FileListPageCounter.Tests" />
+  </ItemGroup>
+
+</Project>
