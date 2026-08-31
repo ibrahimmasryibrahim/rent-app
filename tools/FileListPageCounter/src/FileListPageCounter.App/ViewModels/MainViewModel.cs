@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Windows.Input;
 using FileListPageCounter.App.Infrastructure;
 using FileListPageCounter.Core.Common;
 using FileListPageCounter.Core.Diagnostics;
@@ -28,11 +27,15 @@ public sealed class SortOptionItem
     public override string ToString() => Label;
 }
 
+/// <summary>
+/// Drives the main window. Scan options live here in memory only — nothing is written to disk,
+/// so the tool leaves no configuration file anywhere and starts from the same sane defaults
+/// every time. Everything that shapes a report is asked for in the export dialog instead.
+/// </summary>
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IDialogService _dialogs;
     private readonly ScanService _scanService = new();
-    private readonly AppSettings _settings;
 
     /// <summary>Everything the last scan found, unfiltered — lets option changes re-apply instantly.</summary>
     private IReadOnlyList<FileEntry> _rawEntries = Array.Empty<FileEntry>();
@@ -40,30 +43,40 @@ public sealed class MainViewModel : ObservableObject
     private string? _sourceFolder;
     private IReadOnlyList<string>? _selectedFiles;
     private CancellationTokenSource? _cancellation;
+    private ProcessingLog? _lastLog;
+
+    // Scan options, remembered for this session only.
+    private bool _includeSubdirectories = true;
+    private bool _ignoreUnsupportedFiles = true;
+    private bool _countTiffFrames = true;
+    private bool _verifyIntegrity = true;
+    private bool _useFolderNameAsTitle = true;
+    private SortMode _sortMode = SortMode.ByFileName;
+
+    // Export choices, carried from one export to the next within the session.
+    private int _fontSize = ReportOptions.DefaultFontSize;
+    private int _columnBlocks = 1;
 
     private IReadOnlyList<FileEntry> _entries = Array.Empty<FileEntry>();
     private string _sourceDescription = "لم يتم اختيار مصدر بعد";
     private string _statusText = "جاهز";
     private string _progressText = string.Empty;
+    private string _reportTitle = Strings.ReportTitle;
     private double _progressValue;
     private bool _isBusy;
     private int _totalFiles;
     private int _totalPages;
     private int _unknownCount;
-    private string? _lastLogPath;
     private int _logEntryCount;
-    private ProcessingLog? _lastLog;
-    private string _reportTitle = Strings.ReportTitle;
 
     public MainViewModel(IDialogService dialogs)
     {
         _dialogs = dialogs;
-        _settings = AppSettings.Load();
 
         SelectFolderCommand = new AsyncRelayCommand(SelectFolderAsync, () => !IsBusy);
         SelectFilesCommand = new AsyncRelayCommand(SelectFilesAsync, () => !IsBusy);
-        CreateWordCommand = new RelayCommand(CreateWord, () => !IsBusy && Entries.Count > 0);
-        CreateExcelCommand = new RelayCommand(CreateExcel, () => !IsBusy && Entries.Count > 0);
+        CreateWordCommand = new RelayCommand(CreateWord, CanExport);
+        CreateExcelCommand = new RelayCommand(CreateExcel, CanExport);
         ClearCommand = new RelayCommand(Clear, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         SaveLogCommand = new RelayCommand(SaveLog, () => HasLogEntries);
@@ -84,6 +97,8 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand CancelCommand { get; }
 
     public RelayCommand SaveLogCommand { get; }
+
+    private bool CanExport() => !IsBusy && Entries.Count > 0;
 
     // ------------------------------------------------------------ bindables
 
@@ -181,11 +196,10 @@ public sealed class MainViewModel : ObservableObject
         get => _logEntryCount;
         private set
         {
-            if (SetProperty(ref _logEntryCount, value))
-            {
-                OnPropertyChanged(nameof(HasLogEntries));
-                SaveLogCommand.RaiseCanExecuteChanged();
-            }
+            if (!SetProperty(ref _logEntryCount, value)) return;
+
+            OnPropertyChanged(nameof(HasLogEntries));
+            SaveLogCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -195,14 +209,10 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IncludeSubdirectories
     {
-        get => _settings.IncludeSubdirectories;
+        get => _includeSubdirectories;
         set
         {
-            if (_settings.IncludeSubdirectories == value) return;
-
-            _settings.IncludeSubdirectories = value;
-            _settings.Save();
-            OnPropertyChanged();
+            if (!SetProperty(ref _includeSubdirectories, value)) return;
 
             // Only a folder scan is affected, and it needs the disk again.
             if (_sourceFolder is not null && !IsBusy) _ = RescanAsync();
@@ -211,28 +221,19 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IgnoreUnsupportedFiles
     {
-        get => _settings.IgnoreUnsupportedFiles;
+        get => _ignoreUnsupportedFiles;
         set
         {
-            if (_settings.IgnoreUnsupportedFiles == value) return;
-
-            _settings.IgnoreUnsupportedFiles = value;
-            _settings.Save();
-            OnPropertyChanged();
-            ReapplyView();
+            if (SetProperty(ref _ignoreUnsupportedFiles, value)) ReapplyView();
         }
     }
 
     public bool CountTiffFrames
     {
-        get => _settings.CountTiffFrames;
+        get => _countTiffFrames;
         set
         {
-            if (_settings.CountTiffFrames == value) return;
-
-            _settings.CountTiffFrames = value;
-            _settings.Save();
-            OnPropertyChanged();
+            if (!SetProperty(ref _countTiffFrames, value)) return;
 
             if (HasSource && !IsBusy) _ = RescanAsync();
         }
@@ -240,46 +241,43 @@ public sealed class MainViewModel : ObservableObject
 
     public bool VerifyIntegrity
     {
-        get => _settings.VerifyIntegrity;
-        set
-        {
-            if (_settings.VerifyIntegrity == value) return;
-
-            _settings.VerifyIntegrity = value;
-            _settings.Save();
-            OnPropertyChanged();
-        }
-    }
-
-    public bool OpenAfterCreate
-    {
-        get => _settings.OpenAfterCreate;
-        set
-        {
-            if (_settings.OpenAfterCreate == value) return;
-
-            _settings.OpenAfterCreate = value;
-            _settings.Save();
-            OnPropertyChanged();
-        }
+        get => _verifyIntegrity;
+        set => SetProperty(ref _verifyIntegrity, value);
     }
 
     public bool UseFolderNameAsTitle
     {
-        get => _settings.UseFolderNameAsTitle;
+        get => _useFolderNameAsTitle;
         set
         {
-            if (_settings.UseFolderNameAsTitle == value) return;
-
-            _settings.UseFolderNameAsTitle = value;
-            _settings.Save();
-            OnPropertyChanged();
+            if (!SetProperty(ref _useFolderNameAsTitle, value)) return;
 
             ReportTitle = value && _sourceFolder is not null
                 ? FolderTitle(_sourceFolder)
                 : Strings.ReportTitle;
         }
     }
+
+    public IReadOnlyList<SortOptionItem> SortOptions { get; } = new[]
+    {
+        new SortOptionItem(SortMode.ByFileName, "حسب اسم الملف"),
+        new SortOptionItem(SortMode.FolderOrder, "حسب ترتيب الملفات في المجلد")
+    };
+
+    public SortOptionItem SelectedSortOption
+    {
+        get => SortOptions.FirstOrDefault(o => o.Mode == _sortMode) ?? SortOptions[0];
+        set
+        {
+            if (value is null || _sortMode == value.Mode) return;
+
+            _sortMode = value.Mode;
+            OnPropertyChanged();
+            ReapplyView();
+        }
+    }
+
+    private bool HasSource => _sourceFolder is not null || _selectedFiles is { Count: > 0 };
 
     /// <summary>
     /// The folder's own name, which is what a user means by "name the report after the folder".
@@ -297,43 +295,6 @@ public sealed class MainViewModel : ObservableObject
             return Strings.ReportTitle;
         }
     }
-
-    public IReadOnlyList<int> FontSizes => ReportOptions.AllowedFontSizes;
-
-    public int FontSize
-    {
-        get => _settings.FontSize;
-        set
-        {
-            if (_settings.FontSize == value) return;
-
-            _settings.FontSize = value;
-            _settings.Save();
-            OnPropertyChanged();
-        }
-    }
-
-    public IReadOnlyList<SortOptionItem> SortOptions { get; } = new[]
-    {
-        new SortOptionItem(SortMode.ByFileName, "حسب اسم الملف"),
-        new SortOptionItem(SortMode.FolderOrder, "حسب ترتيب الملفات في المجلد")
-    };
-
-    public SortOptionItem SelectedSortOption
-    {
-        get => SortOptions.FirstOrDefault(o => o.Mode == _settings.SortMode) ?? SortOptions[0];
-        set
-        {
-            if (value is null || _settings.SortMode == value.Mode) return;
-
-            _settings.SortMode = value.Mode;
-            _settings.Save();
-            OnPropertyChanged();
-            ReapplyView();
-        }
-    }
-
-    private bool HasSource => _sourceFolder is not null || _selectedFiles is { Count: > 0 };
 
     // --------------------------------------------------------------- actions
 
@@ -389,7 +350,7 @@ public sealed class MainViewModel : ObservableObject
             IgnoreUnsupportedFiles = false,
             CountTiffFrames = CountTiffFrames,
             VerifyIntegrity = VerifyIntegrity,
-            SortMode = _settings.SortMode
+            SortMode = _sortMode
         };
 
         var progress = new Progress<ScanProgress>(p =>
@@ -405,9 +366,8 @@ public sealed class MainViewModel : ObservableObject
                 : await _scanService.ScanFilesAsync(_selectedFiles!, options, progress, token).ConfigureAwait(true);
 
             _rawEntries = result.Entries;
-            _lastLogPath = null;
-            LogEntryCount = result.Log.Count;
             _lastLog = result.Log;
+            LogEntryCount = result.Log.Count;
 
             ReapplyView();
 
@@ -443,7 +403,7 @@ public sealed class MainViewModel : ObservableObject
         var options = new ScanOptions
         {
             IgnoreUnsupportedFiles = IgnoreUnsupportedFiles,
-            SortMode = _settings.SortMode
+            SortMode = _sortMode
         };
 
         List<FileEntry> view = EntryOrganizer.Organize(_rawEntries, options);
@@ -455,30 +415,54 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ExportHint));
     }
 
-    private void CreateWord() => CreateReport(
-        ".docx",
-        "مستند Word",
-        "Word",
-        static (path, entries, options) => WordReportBuilder.Build(path, entries, options));
+    // --------------------------------------------------------------- export
 
-    private void CreateExcel() => CreateReport(
-        ".xlsx",
-        "مصنّف Excel",
-        "Excel",
-        static (path, entries, options) => ExcelReportBuilder.Build(path, entries, options));
+    private void CreateWord() => Export(
+        formatName: "Word",
+        extension: ".docx",
+        filterLabel: "مستند Word",
+        paginated: true,
+        build: static (path, entries, options) => WordReportBuilder.Build(path, entries, options));
 
-    private void CreateReport(
+    private void CreateExcel() => Export(
+        formatName: "Excel",
+        extension: ".xlsx",
+        filterLabel: "مصنّف Excel",
+        paginated: false,
+        build: static (path, entries, options) => ExcelReportBuilder.Build(path, entries, options));
+
+    private void Export(
+        string formatName,
         string extension,
         string filterLabel,
-        string formatName,
+        bool paginated,
         Action<string, IReadOnlyList<FileEntry>, ReportOptions> build)
     {
         if (Entries.Count == 0) return;
 
+        // Ask first, save second: the user shapes the document before choosing where it lands.
+        ExportChoice? choice = _dialogs.RequestExportOptions(new ExportRequest
+        {
+            FormatName = formatName,
+            Paginated = paginated,
+            EntryCount = Entries.Count,
+            TotalPages = TotalPages,
+            Title = ReportTitle,
+            FontSize = _fontSize,
+            ColumnBlocks = _columnBlocks
+        });
+
+        if (choice is null) return;
+
+        _fontSize = choice.FontSize;
+        _columnBlocks = choice.ColumnBlocks;
+        ReportTitle = choice.Title;
+
         var reportOptions = new ReportOptions
         {
-            FontSize = FontSize,
-            Title = ReportTitle
+            Title = choice.Title,
+            FontSize = choice.FontSize,
+            ColumnBlocks = choice.ColumnBlocks
         };
 
         string? target = _dialogs.PickSaveLocation(
@@ -510,24 +494,19 @@ public sealed class MainViewModel : ObservableObject
 
         StatusText = "تم إنشاء الملف: " + target;
 
-        string summary =
+        if (choice.OpenWhenDone)
+        {
+            OpenDocument(target);
+            return;
+        }
+
+        _dialogs.ShowInfo(
             "تم إنشاء الملف بنجاح.\n\n" +
             $"عدد الملفات: {Num(TotalFiles)}\n" +
             $"إجمالي الصفحات: {Num(TotalPages)}\n" +
             $"تعذر تحديد صفحاتها: {Num(UnknownCount)}\n\n" +
-            target;
-
-        if (OpenAfterCreate)
-        {
-            if (_dialogs.Confirm(summary + "\n\nهل تريد فتح الملف الآن؟", "تم الإنشاء"))
-            {
-                OpenDocument(target);
-            }
-        }
-        else
-        {
-            _dialogs.ShowInfo(summary, "تم الإنشاء");
-        }
+            target,
+            "تم الإنشاء");
     }
 
     private void OpenDocument(string path)
@@ -565,7 +544,6 @@ public sealed class MainViewModel : ObservableObject
         _selectedFiles = null;
         _rawEntries = Array.Empty<FileEntry>();
         _lastLog = null;
-        _lastLogPath = null;
 
         Entries = Array.Empty<FileEntry>();
         TotalFiles = 0;
@@ -588,8 +566,8 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            _lastLogPath = _lastLog.Save();
-            _dialogs.ShowInfo("تم حفظ سجل التفاصيل في:\n\n" + _lastLogPath, "سجل المعالجة");
+            string path = _lastLog.Save();
+            _dialogs.ShowInfo("تم حفظ سجل التفاصيل في:\n\n" + path, "سجل المعالجة");
         }
         catch (Exception ex)
         {

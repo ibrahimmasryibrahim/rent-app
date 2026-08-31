@@ -331,4 +331,75 @@ public class WordReportTests
 
         Assert.Equal("Ibrahim Masry Ibrahim", document.PackageProperties.Creator);
     }
+
+    [Fact]
+    public async Task Two_blocks_halve_the_rows_and_triple_the_columns()
+    {
+        using ReportFixture fixture = await BuildReportAsync(fileCount: 12, options: new ReportOptions { ColumnBlocks = 2 });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
+        TableRow[] rows = table.Elements<TableRow>().ToArray();
+
+        // 12 entries over two blocks: a header plus six rows of six cells.
+        Assert.Equal(7, rows.Length);
+        Assert.Equal(6, rows[0].Elements<TableCell>().Count());
+        Assert.Equal(6, table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Count());
+
+        // The headings repeat once per block.
+        Assert.Equal(
+            new[] { "م", "اسم الملف", "عدد الصفحات", "م", "اسم الملف", "عدد الصفحات" },
+            rows[0].Elements<TableCell>().Select(c => c.InnerText).ToArray());
+    }
+
+    [Fact]
+    public async Task Three_blocks_lay_the_numbers_out_down_each_block_in_turn()
+    {
+        using ReportFixture fixture = await BuildReportAsync(fileCount: 9, options: new ReportOptions { ColumnBlocks = 3 });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
+        TableRow[] rows = table.Elements<TableRow>().Skip(1).ToArray();
+
+        Assert.Equal(3, rows.Length);
+
+        // Row one holds items 1, 4 and 7 — the top of each of the three blocks.
+        string[] first = rows[0].Elements<TableCell>().Select(c => c.InnerText).ToArray();
+        Assert.Equal("1", first[0]);
+        Assert.Equal("4", first[3]);
+        Assert.Equal("7", first[6]);
+    }
+
+    [Fact]
+    public async Task An_uneven_list_still_produces_a_rectangular_table()
+    {
+        using ReportFixture fixture = await BuildReportAsync(fileCount: 7, options: new ReportOptions { ColumnBlocks = 3 });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
+
+        // Every row carries nine cells even where the list has run out.
+        Assert.All(table.Elements<TableRow>(), r => Assert.Equal(9, r.Elements<TableCell>().Count()));
+
+        // Every file still appears exactly once.
+        string text = table.InnerText;
+        foreach (string name in new[] { "10001", "10002", "10003", "10005", "10006", "10007" })
+        {
+            Assert.Contains(name, text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task The_header_still_repeats_and_rows_still_hold_together_with_several_blocks()
+    {
+        using ReportFixture fixture = await BuildReportAsync(fileCount: 200, options: new ReportOptions { ColumnBlocks = 2 });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
+        TableRow[] rows = table.Elements<TableRow>().ToArray();
+
+        Assert.NotNull(rows[0].TableRowProperties!.GetFirstChild<TableHeader>());
+        Assert.Single(table.Descendants<TableHeader>());
+        Assert.All(rows, r => Assert.NotNull(r.TableRowProperties!.GetFirstChild<CantSplit>()));
+    }
 }

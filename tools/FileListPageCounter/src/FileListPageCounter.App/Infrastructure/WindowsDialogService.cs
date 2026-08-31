@@ -52,6 +52,12 @@ public sealed class WindowsDialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
+    public ExportChoice? RequestExportOptions(ExportRequest request)
+    {
+        var window = new ExportOptionsWindow(request) { Owner = Owner() };
+        return window.ShowDialog() == true ? window.Choice : null;
+    }
+
     public void ShowInfo(string message, string title) =>
         MessageBox.Show(Owner(), message, title, MessageBoxButton.OK, MessageBoxImage.Information);
 

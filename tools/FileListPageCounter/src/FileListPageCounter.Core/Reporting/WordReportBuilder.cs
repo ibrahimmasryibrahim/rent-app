@@ -26,11 +26,6 @@ public static class WordReportBuilder
 
     private const int UsableWidthTwips = PageWidthTwips - (2 * SideMarginTwips); // 9638
 
-    // Columns, right to left on the page: م | اسم الملف | عدد الصفحات
-    private const int IndexColumnWidth = 850;
-    private const int PagesColumnWidth = 2000;
-    private const int NameColumnWidth = UsableWidthTwips - IndexColumnWidth - PagesColumnWidth;
-
     // The headline figures sit in three equal cells.
     private const int FigureColumnWidth = UsableWidthTwips / 3;
 
@@ -222,9 +217,20 @@ public static class WordReportBuilder
 
     private static Table BuildTable(IReadOnlyList<FileEntry> entries, ReportOptions options)
     {
+        int blocks = ReportLayout.NormalizeBlocks(options.ColumnBlocks);
+        (int indexWidth, int nameWidth, int countWidth) = ReportLayout.BlockColumnWidths(UsableWidthTwips, blocks);
+
+        var grid = new TableGrid();
+        for (int block = 0; block < blocks; block++)
+        {
+            grid.AppendChild(new GridColumn { Width = Twips(indexWidth) });
+            grid.AppendChild(new GridColumn { Width = Twips(nameWidth) });
+            grid.AppendChild(new GridColumn { Width = Twips(countWidth) });
+        }
+
         var table = new Table(
             new TableProperties(
-                new BiDiVisual(),                                   // first column renders on the right
+                new BiDiVisual(),                                   // the first block renders on the right
                 new TableWidth { Width = Twips(UsableWidthTwips), Type = TableWidthUnitValues.Dxa },
                 new TableJustification { Val = TableRowAlignmentValues.Center },
                 new TableBorders(
@@ -237,24 +243,21 @@ public static class WordReportBuilder
                 new TableLayout { Type = TableLayoutValues.Fixed },
                 CellMargins(top: 70, bottom: 70, side: 100),
                 new TableLook { Val = "04A0", FirstRow = true, LastRow = false, FirstColumn = false, LastColumn = false, NoHorizontalBand = false, NoVerticalBand = true }),
-            new TableGrid(
-                new GridColumn { Width = Twips(IndexColumnWidth) },
-                new GridColumn { Width = Twips(NameColumnWidth) },
-                new GridColumn { Width = Twips(PagesColumnWidth) }));
+            grid);
 
-        table.AppendChild(HeaderRow(options));
+        table.AppendChild(HeaderRow(options, blocks, indexWidth, nameWidth, countWidth));
 
         bool banded = false;
-        foreach (FileEntry entry in entries)
+        foreach (FileEntry?[] cells in ReportLayout.Arrange(entries, blocks))
         {
-            table.AppendChild(DataRow(entry, options, banded));
+            table.AppendChild(DataRow(cells, options, banded, indexWidth, nameWidth, countWidth));
             banded = !banded;
         }
 
         return table;
     }
 
-    private static TableRow HeaderRow(ReportOptions options)
+    private static TableRow HeaderRow(ReportOptions options, int blocks, int indexWidth, int nameWidth, int countWidth)
     {
         var row = new TableRow(
             new TableRowProperties(
@@ -264,14 +267,24 @@ public static class WordReportBuilder
 
         var style = new TextStyle(options.FontSize, Bold: true, Color: ReportTheme.OnAccent);
 
-        row.AppendChild(Cell(Strings.ColumnIndex, IndexColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
-        row.AppendChild(Cell(Strings.ColumnFileName, NameColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
-        row.AppendChild(Cell(Strings.ColumnPages, PagesColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+        // Every block carries its own headings, so each one reads as a complete little table.
+        for (int block = 0; block < blocks; block++)
+        {
+            row.AppendChild(Cell(Strings.ColumnIndex, indexWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+            row.AppendChild(Cell(Strings.ColumnFileName, nameWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+            row.AppendChild(Cell(Strings.ColumnPages, countWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+        }
 
         return row;
     }
 
-    private static TableRow DataRow(FileEntry entry, ReportOptions options, bool banded)
+    private static TableRow DataRow(
+        FileEntry?[] cells,
+        ReportOptions options,
+        bool banded,
+        int indexWidth,
+        int nameWidth,
+        int countWidth)
     {
         var row = new TableRow(
             new TableRowProperties(
@@ -283,24 +296,37 @@ public static class WordReportBuilder
         var normal = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor);
         var muted = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.MutedColor);
 
-        // A row number is an ordinal, not a quantity — no thousands separator.
-        row.AppendChild(Cell(
-            entry.Index.ToString(CultureInfo.InvariantCulture),
-            IndexColumnWidth,
-            muted,
-            options,
-            JustificationValues.Center,
-            fill));
-        row.AppendChild(Cell(entry.DisplayName, NameColumnWidth, normal, options, JustificationValues.Right, fill));
+        foreach (FileEntry? entry in cells)
+        {
+            if (entry is null)
+            {
+                // The list ran out mid-row: keep the grid intact with empty cells.
+                row.AppendChild(Cell(string.Empty, indexWidth, muted, options, JustificationValues.Center, fill));
+                row.AppendChild(Cell(string.Empty, nameWidth, normal, options, JustificationValues.Right, fill));
+                row.AppendChild(Cell(string.Empty, countWidth, normal, options, JustificationValues.Center, fill));
+                continue;
+            }
 
-        // An undetermined count is stated plainly but never shouts: muted, not bold.
-        row.AppendChild(Cell(
-            entry.PageCountText,
-            PagesColumnWidth,
-            entry.PageCount.HasValue ? normal : muted,
-            options,
-            JustificationValues.Center,
-            fill));
+            // A row number is an ordinal, not a quantity — no thousands separator.
+            row.AppendChild(Cell(
+                entry.Index.ToString(CultureInfo.InvariantCulture),
+                indexWidth,
+                muted,
+                options,
+                JustificationValues.Center,
+                fill));
+
+            row.AppendChild(Cell(entry.DisplayName, nameWidth, normal, options, JustificationValues.Right, fill));
+
+            // An undetermined count is stated plainly but never shouts: muted, not bold.
+            row.AppendChild(Cell(
+                entry.PageCountText,
+                countWidth,
+                entry.PageCount.HasValue ? normal : muted,
+                options,
+                JustificationValues.Center,
+                fill));
+        }
 
         return row;
     }

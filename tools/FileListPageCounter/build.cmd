@@ -42,9 +42,6 @@ dotnet publish src\FileListPageCounter.App\FileListPageCounter.App.csproj ^
     -p:DebugType=none ^
     -o publish || goto :failed
 
-rem Portable mode: settings are stored next to the EXE instead of in %APPDATA%.
-if not exist publish\portable.txt echo portable > publish\portable.txt
-
 echo.
 echo === Done ===================================================================
 echo   publish\FileListPageCounter.exe

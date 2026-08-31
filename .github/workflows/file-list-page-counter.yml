@@ -55,9 +55,6 @@ jobs:
           -p:DebugType=none
           -o publish
 
-      - name: Mark the build as portable
-        run: echo portable > publish/portable.txt
-
       - name: Upload the EXE as a workflow artifact
         uses: actions/upload-artifact@v4
         with:

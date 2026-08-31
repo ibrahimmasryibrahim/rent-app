@@ -82,7 +82,6 @@
                     <CheckBox Content="تجاهل الملفات غير المدعومة" IsChecked="{Binding IgnoreUnsupportedFiles}" />
                     <CheckBox Content="احتساب صفحات ملفات TIFF متعددة الصفحات" IsChecked="{Binding CountTiffFrames}" />
                     <CheckBox Content="التحقق من عدم تغيّر الملفات الأصلية بعد الفحص" IsChecked="{Binding VerifyIntegrity}" />
-                    <CheckBox Content="عرض خيار فتح الملف بعد إنشائه" IsChecked="{Binding OpenAfterCreate}" />
                     <CheckBox Content="استخدام اسم المجلد كعنوان للتقرير" IsChecked="{Binding UseFolderNameAsTitle}" Margin="0" />
                 </StackPanel>
 
@@ -94,15 +93,16 @@
                              Margin="0,0,0,12"
                              ToolTip="يظهر في أعلى ملف Word و Excel، ويُقترح كاسم للملف عند الحفظ." />
 
-                    <TextBlock Text="حجم الخط في التقرير" Style="{StaticResource LabelStyle}" />
-                    <ComboBox ItemsSource="{Binding FontSizes}"
-                              SelectedItem="{Binding FontSize}"
-                              Margin="0,0,0,12" />
-
                     <TextBlock Text="ترتيب الملفات" Style="{StaticResource LabelStyle}" />
                     <ComboBox ItemsSource="{Binding SortOptions}"
                               SelectedItem="{Binding SelectedSortOption}"
-                              DisplayMemberPath="Label" />
+                              DisplayMemberPath="Label"
+                              Margin="0,0,0,10" />
+
+                    <TextBlock TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="{StaticResource AppMuted}"
+                               Text="حجم الخط وتوزيع الجدول على الصفحة يُختاران عند التصدير." />
                 </StackPanel>
             </Grid>
         </Border>

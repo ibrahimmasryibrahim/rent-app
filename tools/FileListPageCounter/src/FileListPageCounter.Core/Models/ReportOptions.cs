@@ -32,6 +32,18 @@ public sealed class ReportOptions
     /// <summary>Credited on every report and written into the document properties.</summary>
     public string DeveloperName { get; set; } = Strings.Developer;
 
+    private int _columnBlocks = 1;
+
+    /// <summary>
+    /// How many times the three columns repeat across the width of the page (1, 2 or 3).
+    /// Two or three blocks turn a long thin list into a fraction of the pages.
+    /// </summary>
+    public int ColumnBlocks
+    {
+        get => _columnBlocks;
+        set => _columnBlocks = Reporting.ReportLayout.NormalizeBlocks(value);
+    }
+
     /// <summary>Adds a "صفحة X" footer for printing.</summary>
     public bool IncludePageNumbers { get; set; } = true;
 }

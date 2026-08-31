@@ -8,6 +8,9 @@ public interface IDialogService
 
     string? PickSaveLocation(string defaultFileName, string extension, string filterLabel);
 
+    /// <summary>Shows the pre-export options window. Returns null when the user cancels.</summary>
+    ExportChoice? RequestExportOptions(ExportRequest request);
+
     void ShowInfo(string message, string title);
 
     void ShowWarning(string message, string title);
