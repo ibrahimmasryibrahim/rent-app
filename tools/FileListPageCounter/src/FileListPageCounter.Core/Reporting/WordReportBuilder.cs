@@ -283,7 +283,7 @@ public static class WordReportBuilder
             Width = (uint)PageWidthTwips,
             Height = (uint)PageHeightTwips,
             Orient = PageOrientationValues.Portrait,
-            Code = 9U // A4
+            Code = (ushort)9 // the Windows paper-size code for A4
         });
 
         section.AppendChild(new PageMargin

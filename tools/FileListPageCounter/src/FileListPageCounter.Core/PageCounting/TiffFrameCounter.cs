@@ -51,6 +51,10 @@ internal static class TiffFrameCounter
             int frames = 0;
             var visited = new HashSet<long>();
 
+            // One buffer for the whole walk: allocating inside the loop would grow the
+            // stack on every frame of a long IFD chain.
+            Span<byte> scratch = stackalloc byte[8];
+
             while (nextIfd > 0 && nextIfd < stream.Length && frames < MaxFrames)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -62,31 +66,27 @@ internal static class TiffFrameCounter
 
                 if (bigTiff)
                 {
-                    Span<byte> countBytes = stackalloc byte[8];
-                    if (!ReadExactly(stream, countBytes)) break;
-                    ulong entries = ReadUInt64(countBytes, littleEndian);
+                    if (!ReadExactly(stream, scratch)) break;
+                    ulong entries = ReadUInt64(scratch, littleEndian);
 
                     long afterEntries = nextIfd + 8 + (long)entries * 20;
                     if (afterEntries + 8 > stream.Length) break;
 
                     stream.Position = afterEntries;
-                    Span<byte> nextBytes = stackalloc byte[8];
-                    if (!ReadExactly(stream, nextBytes)) break;
-                    nextIfd = (long)ReadUInt64(nextBytes, littleEndian);
+                    if (!ReadExactly(stream, scratch)) break;
+                    nextIfd = (long)ReadUInt64(scratch, littleEndian);
                 }
                 else
                 {
-                    Span<byte> countBytes = stackalloc byte[2];
-                    if (!ReadExactly(stream, countBytes)) break;
-                    ushort entries = ReadUInt16(countBytes, littleEndian);
+                    if (!ReadExactly(stream, scratch[..2])) break;
+                    ushort entries = ReadUInt16(scratch[..2], littleEndian);
 
                     long afterEntries = nextIfd + 2 + (long)entries * 12;
                     if (afterEntries + 4 > stream.Length) break;
 
                     stream.Position = afterEntries;
-                    Span<byte> nextBytes = stackalloc byte[4];
-                    if (!ReadExactly(stream, nextBytes)) break;
-                    nextIfd = ReadUInt32(nextBytes, littleEndian);
+                    if (!ReadExactly(stream, scratch[..4])) break;
+                    nextIfd = ReadUInt32(scratch[..4], littleEndian);
                 }
             }
 
