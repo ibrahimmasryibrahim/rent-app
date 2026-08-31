@@ -14,7 +14,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # Needed to publish the built EXE as a release asset. Release assets can be
+  # downloaded without signing in to GitHub; workflow artifacts cannot.
+  contents: write
 
 jobs:
   build:
@@ -56,9 +58,26 @@ jobs:
       - name: Mark the build as portable
         run: echo portable > publish/portable.txt
 
-      - name: Upload the EXE
+      - name: Upload the EXE as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: FileListPageCounter-windows-x64
           path: tools/FileListPageCounter/publish/
           if-no-files-found: error
+
+      - name: Package the EXE for the release
+        run: Compress-Archive -Path publish/* -DestinationPath FileListPageCounter-windows-x64.zip -Force
+
+      - name: Publish a release anyone can download without signing in
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'file-list-page-counter-v1.0.0'
+          $notes = "استخراج أسماء الملفات وعدد الصفحات`n`nنزّل FileListPageCounter-windows-x64.zip من الأسفل، فُكّ الضغط، ثم شغّل FileListPageCounter.exe.`nيعمل على Windows 10/11 (64-bit) بدون تثبيت أي شيء.`n`nBuilt from commit $env:GITHUB_SHA"
+          gh release view $tag > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag FileListPageCounter-windows-x64.zip --clobber
+              gh release edit $tag --notes $notes --target $env:GITHUB_SHA
+          } else {
+              gh release create $tag FileListPageCounter-windows-x64.zip --title 'FILE LIST & PAGE COUNTER 1.0.0' --notes $notes --target $env:GITHUB_SHA
+          }
