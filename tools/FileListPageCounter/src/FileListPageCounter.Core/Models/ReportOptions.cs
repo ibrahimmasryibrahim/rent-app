@@ -29,9 +29,6 @@ public sealed class ReportOptions
         set => _title = string.IsNullOrWhiteSpace(value) ? Strings.ReportTitle : value.Trim();
     }
 
-    /// <summary>Credited on every report and written into the document properties.</summary>
-    public string DeveloperName { get; set; } = Strings.Developer;
-
     private int _columnBlocks = 1;
 
     /// <summary>

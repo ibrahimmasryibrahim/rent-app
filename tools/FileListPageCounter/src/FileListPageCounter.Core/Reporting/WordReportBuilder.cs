@@ -495,14 +495,6 @@ public static class WordReportBuilder
         paragraph.AppendChild(
             new SimpleField(BuildRun("1", style, options)) { Instruction = " PAGE " });
 
-        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
-        {
-            paragraph.AppendChild(BuildRun(
-                $"     •     {Strings.PreparedBy}: {options.DeveloperName}",
-                style,
-                options));
-        }
-
         footerPart.Footer = new Footer(paragraph);
         footerPart.Footer.Save();
 

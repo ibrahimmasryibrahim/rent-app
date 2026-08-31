@@ -4,19 +4,23 @@ using FileListPageCounter.Core.Models;
 namespace FileListPageCounter.Core.Reporting;
 
 /// <summary>
-/// Writes the Office document properties every report carries: the title the user chose and
-/// the tool's author, so the credit survives even when the file is renamed or forwarded.
+/// Writes the Office document properties every report carries. The author field names the tool
+/// that generated the file, never a person: nobody signed this report, it was produced from a
+/// folder listing, and claiming a preparer in the metadata would be a claim the file cannot make.
 /// </summary>
 internal static class DocumentProperties
 {
+    private const string ProducedBy = "FILE LIST & PAGE COUNTER";
+
+
     public static void Stamp(OpenXmlPackage package, ReportOptions options)
     {
         try
         {
             package.PackageProperties.Title = options.Title;
             package.PackageProperties.Subject = Common.Strings.ReportTitle;
-            package.PackageProperties.Creator = options.DeveloperName;
-            package.PackageProperties.LastModifiedBy = options.DeveloperName;
+            package.PackageProperties.Creator = ProducedBy;
+            package.PackageProperties.LastModifiedBy = ProducedBy;
             package.PackageProperties.Created = DateTime.Now;
             package.PackageProperties.Modified = DateTime.Now;
         }

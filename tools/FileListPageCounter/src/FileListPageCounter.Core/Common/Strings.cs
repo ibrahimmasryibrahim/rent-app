@@ -9,10 +9,8 @@ public static class Strings
     public const string Unknown = "غير معروف";
     public const string ReportTitle = "قائمة الملفات وعدد الصفحات";
 
-    /// <summary>Author of the tool, shown in the application and stamped into every report.</summary>
+    /// <summary>Author of the tool. Shown in the application window only — never inside a report.</summary>
     public const string Developer = "Ibrahim Masry Ibrahim";
-
-    public const string PreparedBy = "إعداد";
 
     public const string ColumnIndex = "م";
     public const string ColumnFileName = "اسم الملف";

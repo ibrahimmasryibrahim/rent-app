@@ -24,10 +24,15 @@ public class ReportNamingTests
     }
 
     [Fact]
-    public void The_developer_name_is_carried_by_default()
+    public void The_developer_name_belongs_to_the_tool_not_to_the_report()
     {
-        Assert.Equal("Ibrahim Masry Ibrahim", new ReportOptions().DeveloperName);
+        // Still available for the application window; no report option carries it any more.
         Assert.Equal("Ibrahim Masry Ibrahim", Strings.Developer);
+
+        Assert.DoesNotContain(
+            typeof(ReportOptions).GetProperties(),
+            property => property.Name.Contains("Developer", StringComparison.OrdinalIgnoreCase) ||
+                        property.Name.Contains("Prepared", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]

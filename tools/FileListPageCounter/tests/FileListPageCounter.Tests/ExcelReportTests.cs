@@ -10,7 +10,7 @@ using Xunit;
 
 namespace FileListPageCounter.Tests;
 
-/// <summary>The Excel report: a genuine XLSX with the same data, totals and credit as the Word one.</summary>
+/// <summary>The Excel report: a genuine XLSX carrying the same data and totals as the Word one.</summary>
 public class ExcelReportTests
 {
     private sealed class ReportFixture : IDisposable
@@ -176,7 +176,7 @@ public class ExcelReportTests
     }
 
     [Fact]
-    public async Task The_title_and_the_developer_credit_appear_in_the_sheet()
+    public async Task The_title_reaches_the_sheet_but_no_person_is_named_as_its_preparer()
     {
         using ReportFixture fixture = await BuildReportAsync(new ReportOptions { Title = "أرشيف 2026" });
         using var document = SpreadsheetDocument.Open(fixture.Path, false);
@@ -184,12 +184,14 @@ public class ExcelReportTests
         SheetData data = document.WorkbookPart!.WorksheetParts.Single().Worksheet.Elements<SheetData>().Single();
 
         Assert.Equal("أرشيف 2026", CellText(RowAt(data, 1).Elements<Cell>().First()));
-
-        string allText = string.Join("\n", data.Descendants<Cell>().Select(CellText));
-        Assert.Contains("Ibrahim Masry Ibrahim", allText, StringComparison.Ordinal);
-
         Assert.Equal("أرشيف 2026", document.PackageProperties.Title);
-        Assert.Equal("Ibrahim Masry Ibrahim", document.PackageProperties.Creator);
+
+        // Nobody signed this sheet — it was produced from a folder listing.
+        string allText = string.Join("\n", data.Descendants<Cell>().Select(CellText));
+        Assert.DoesNotContain("Ibrahim", allText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("إعداد", allText, StringComparison.Ordinal);
+
+        Assert.Equal("FILE LIST & PAGE COUNTER", document.PackageProperties.Creator);
     }
 
     [Fact]

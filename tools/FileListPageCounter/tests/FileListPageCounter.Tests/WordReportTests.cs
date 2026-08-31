@@ -320,16 +320,25 @@ public class WordReportTests
     }
 
     [Fact]
-    public async Task The_developer_is_credited_in_the_document_and_its_properties()
+    public async Task No_person_is_named_as_the_preparer_of_the_report()
     {
+        // The report is generated from a folder listing; nobody prepared or signed it, so it
+        // must not carry anyone's name — not in the body, not in the footer, not in the metadata.
         using ReportFixture fixture = await BuildReportAsync();
         using var document = WordprocessingDocument.Open(fixture.Path, false);
 
-        // In the footer, so it prints on every page rather than only on the last one.
-        FooterPart footer = Assert.Single(document.MainDocumentPart!.FooterParts);
-        Assert.Contains("إعداد: Ibrahim Masry Ibrahim", footer.Footer!.InnerText, StringComparison.Ordinal);
+        Assert.DoesNotContain("إعداد", document.MainDocumentPart!.Document!.Body!.InnerText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ibrahim", document.MainDocumentPart.Document.Body!.InnerText, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Equal("Ibrahim Masry Ibrahim", document.PackageProperties.Creator);
+        FooterPart footer = Assert.Single(document.MainDocumentPart.FooterParts);
+        Assert.DoesNotContain("Ibrahim", footer.Footer!.InnerText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("إعداد", footer.Footer.InnerText, StringComparison.Ordinal);
+
+        // The footer still does its own job.
+        Assert.Contains("صفحة", footer.Footer.InnerText, StringComparison.Ordinal);
+
+        // The author field names the tool, not a person.
+        Assert.Equal("FILE LIST & PAGE COUNTER", document.PackageProperties.Creator);
     }
 
     [Fact]

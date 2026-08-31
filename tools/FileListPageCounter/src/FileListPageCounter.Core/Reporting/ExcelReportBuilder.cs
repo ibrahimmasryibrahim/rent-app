@@ -55,7 +55,6 @@ public static class ExcelReportBuilder
 
         uint lastDataRow = entries.Count > 0 ? FirstDataRow + (uint)entries.Count - 1 : HeaderRow;
         uint totalsFooterRow = lastDataRow + 1;
-        uint creditRow = totalsFooterRow + 2;
 
         using SpreadsheetDocument document =
             SpreadsheetDocument.Create(outputPath, SpreadsheetDocumentType.Workbook);
@@ -70,7 +69,7 @@ public static class ExcelReportBuilder
         stylesPart.Stylesheet.Save();
 
         WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
-        worksheetPart.Worksheet = BuildWorksheet(entries, options, totals, lastDataRow, totalsFooterRow, creditRow);
+        worksheetPart.Worksheet = BuildWorksheet(entries, options, totals, lastDataRow, totalsFooterRow);
         worksheetPart.Worksheet.Save();
 
         workbookPart.Workbook.AppendChild(new Sheets(new Sheet
@@ -98,8 +97,7 @@ public static class ExcelReportBuilder
         ReportOptions options,
         ReportTotals totals,
         uint lastDataRow,
-        uint totalsFooterRow,
-        uint creditRow)
+        uint totalsFooterRow)
     {
         var sheetData = new SheetData();
 
@@ -162,14 +160,6 @@ public static class ExcelReportBuilder
             sheetData.AppendChild(footer);
         }
 
-        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
-        {
-            sheetData.AppendChild(SingleCellRow(
-                creditRow,
-                $"{Strings.PreparedBy}: {options.DeveloperName}",
-                StyleMeta));
-        }
-
         // ---- sheet assembly -------------------------------------------------
         // Child order follows the schema: sheetPr, sheetViews, sheetFormatPr, cols, sheetData,
         // autoFilter, mergeCells, pageMargins, pageSetup.
@@ -211,11 +201,6 @@ public static class ExcelReportBuilder
         var mergeCells = new MergeCells();
         mergeCells.AppendChild(new MergeCell { Reference = $"A{TitleRow}:C{TitleRow}" });
         mergeCells.AppendChild(new MergeCell { Reference = $"A{MetaRow}:C{MetaRow}" });
-
-        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
-        {
-            mergeCells.AppendChild(new MergeCell { Reference = $"A{creditRow}:C{creditRow}" });
-        }
 
         mergeCells.Count = (uint)mergeCells.ChildElements.Count;
         worksheet.AppendChild(mergeCells);
