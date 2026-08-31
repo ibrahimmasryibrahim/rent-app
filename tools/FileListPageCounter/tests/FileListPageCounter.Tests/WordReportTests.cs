@@ -84,7 +84,7 @@ public class WordReportTests
         Assert.Equal(PageOrientationValues.Portrait, size.Orient!.Value);
 
         PageMargin margin = body.Descendants<PageMargin>().Single();
-        Assert.Equal(1134, margin.Top!.Value);
+        Assert.Equal(1247, margin.Top!.Value);   // extra room for the running header
         Assert.Equal(1134U, margin.Left!.Value);
         Assert.Equal(1134U, margin.Right!.Value);
     }
@@ -99,7 +99,7 @@ public class WordReportTests
 
         // Section, paragraphs, runs and the table itself all carry RTL.
         Assert.NotNull(body.Descendants<SectionProperties>().Single().GetFirstChild<BiDi>());
-        Assert.NotNull(body.Descendants<Table>().Single().GetFirstChild<TableProperties>()!.GetFirstChild<BiDiVisual>());
+        Assert.NotNull(body.Descendants<Table>().Last().GetFirstChild<TableProperties>()!.GetFirstChild<BiDiVisual>());
         Assert.All(body.Descendants<Paragraph>(), p => Assert.NotNull(p.ParagraphProperties?.GetFirstChild<BiDi>()));
         Assert.NotEmpty(body.Descendants<RightToLeftText>());
     }
@@ -121,8 +121,9 @@ public class WordReportTests
         Assert.Equal("40", defaults.FontSize!.Val!.Value);
         Assert.Equal("40", defaults.FontSizeComplexScript!.Val!.Value);
 
-        Body body = document.MainDocumentPart.Document!.Body!;
-        Assert.All(body.Descendants<FontSize>(), fs => Assert.Equal("40", fs.Val!.Value));
+        // Every cell of the data table uses exactly the size the user chose.
+        Table table = document.MainDocumentPart.Document!.Body!.Descendants<Table>().Last();
+        Assert.All(table.Descendants<FontSize>(), fs => Assert.Equal("40", fs.Val!.Value));
     }
 
     [Theory]
@@ -157,7 +158,7 @@ public class WordReportTests
         string path = fixture.Path;
         ScanResult result = fixture.Result;
         using var document = WordprocessingDocument.Open(path, false);
-        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Single();
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
 
         TableRow header = table.Elements<TableRow>().First();
         string[] headings = header.Elements<TableCell>().Select(c => c.InnerText).ToArray();
@@ -174,7 +175,7 @@ public class WordReportTests
         using ReportFixture fixture = await BuildReportAsync(fileCount: 120);
         string path = fixture.Path;
         using var document = WordprocessingDocument.Open(path, false);
-        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Single();
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
 
         TableRow[] rows = table.Elements<TableRow>().ToArray();
 
@@ -191,7 +192,7 @@ public class WordReportTests
         using ReportFixture fixture = await BuildReportAsync();
         string path = fixture.Path;
         using var document = WordprocessingDocument.Open(path, false);
-        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Single();
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
 
         string[][] rows = table.Elements<TableRow>()
             .Skip(1)
@@ -217,14 +218,17 @@ public class WordReportTests
         Assert.Equal(JustificationValues.Center, title.ParagraphProperties!.Justification!.Val!.Value);
         Assert.NotNull(title.Descendants<Bold>().FirstOrDefault());
 
-        string beforeTable = string.Concat(
-            body.ChildElements
-                .TakeWhile(child => child is not Table)
-                .OfType<Paragraph>()
-                .Select(p => p.InnerText + "\n"));
+        // The headline figures sit in their own band, above the data table.
+        Table figureBand = body.Descendants<Table>().First();
+        string[] cells = figureBand.Descendants<TableCell>().Select(c => c.InnerText).ToArray();
 
-        Assert.Contains("إجمالي عدد الملفات: 4", beforeTable);
-        Assert.Contains("إجمالي عدد الصفحات: 14", beforeTable);
+        Assert.Equal(3, cells.Length);
+        Assert.Contains("4", cells[0], StringComparison.Ordinal);
+        Assert.Contains("إجمالي عدد الملفات", cells[0], StringComparison.Ordinal);
+        Assert.Contains("14", cells[1], StringComparison.Ordinal);
+        Assert.Contains("إجمالي عدد الصفحات", cells[1], StringComparison.Ordinal);
+        Assert.Contains("إجمالي عدد الملفات: 4", body.InnerText);      // and again in the closing summary
+        Assert.Contains("إجمالي عدد الصفحات: 14", body.InnerText);
     }
 
     [Fact]
@@ -285,10 +289,10 @@ public class WordReportTests
         WordReportBuilder.Build(path, result.Entries, new ReportOptions());
 
         using var document = WordprocessingDocument.Open(path, false);
-        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Single();
+        Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();
 
         Assert.Equal(count + 1, table.Elements<TableRow>().Count());
-        Assert.Contains($"إجمالي عدد الصفحات: {count}", document.MainDocumentPart.Document.Body!.InnerText);
+        Assert.Contains("إجمالي عدد الصفحات: 1,000", document.MainDocumentPart.Document.Body!.InnerText);
     }
 
     [Fact]
@@ -321,10 +325,9 @@ public class WordReportTests
         using ReportFixture fixture = await BuildReportAsync();
         using var document = WordprocessingDocument.Open(fixture.Path, false);
 
-        Assert.Contains(
-            "إعداد: Ibrahim Masry Ibrahim",
-            document.MainDocumentPart!.Document!.Body!.InnerText,
-            StringComparison.Ordinal);
+        // In the footer, so it prints on every page rather than only on the last one.
+        FooterPart footer = Assert.Single(document.MainDocumentPart!.FooterParts);
+        Assert.Contains("إعداد: Ibrahim Masry Ibrahim", footer.Footer!.InnerText, StringComparison.Ordinal);
 
         Assert.Equal("Ibrahim Masry Ibrahim", document.PackageProperties.Creator);
     }

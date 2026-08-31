@@ -109,6 +109,11 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The tool's author, shown in the window and stamped into every report.</summary>
     public static string Developer => Strings.Developer;
 
+    /// <summary>Says what the export buttons will actually produce, next to the buttons themselves.</summary>
+    public string ExportHint => Entries.Count == 0
+        ? "اختر مجلدًا أو ملفات أولًا لتفعيل التصدير"
+        : $"سيتم تصدير {Num(Entries.Count)} ملفًا بإجمالي {Num(TotalPages)} صفحة";
+
     public string SourceDescription
     {
         get => _sourceDescription;
@@ -447,6 +452,7 @@ public sealed class MainViewModel : ObservableObject
         TotalFiles = view.Count;
         TotalPages = view.Sum(e => e.PageCount ?? 0);
         UnknownCount = view.Count(e => !e.PageCount.HasValue);
+        OnPropertyChanged(nameof(ExportHint));
     }
 
     private void CreateWord() => CreateReport(
@@ -571,6 +577,7 @@ public sealed class MainViewModel : ObservableObject
         ProgressText = string.Empty;
         ProgressValue = 0;
         ReportTitle = Strings.ReportTitle;
+        OnPropertyChanged(nameof(ExportHint));
     }
 
     private void Cancel() => _cancellation?.Cancel();

@@ -9,26 +9,30 @@ namespace FileListPageCounter.Core.Reporting;
 
 /// <summary>
 /// Writes a genuine Microsoft Word document (Open XML / DOCX) — not HTML renamed to .docx.
-/// A4 portrait, right-to-left, Arial, a bordered three-column table whose header row repeats on
-/// every page and whose rows never split across a page break, plus totals above and a summary
-/// below. The only file this class ever writes is the report the user asked for.
+///
+/// The layout follows the conventions of a printed management report: a title block closed by a
+/// rule, a band of headline figures, then a quiet data table where an accent header and
+/// alternating row bands carry the structure instead of heavy grid lines. A running header and
+/// a page-numbered footer keep multi-page prints oriented.
 /// </summary>
 public static class WordReportBuilder
 {
     // A4 portrait in twentieths of a point (twips).
     private const int PageWidthTwips = 11906;
     private const int PageHeightTwips = 16838;
-    private const int MarginTwips = 1134;      // 2 cm on every side
-    private const int HeaderFooterTwips = 567; // 1 cm
+    private const int SideMarginTwips = 1134;   // 2 cm
+    private const int TopMarginTwips = 1247;    // 2.2 cm, leaving room for the running header
+    private const int HeaderFooterTwips = 567;  // 1 cm
 
-    private const int UsableWidthTwips = PageWidthTwips - (2 * MarginTwips); // 9638
+    private const int UsableWidthTwips = PageWidthTwips - (2 * SideMarginTwips); // 9638
 
-    // Column widths, right to left on the page: م | اسم الملف | عدد الصفحات
-    private const int IndexColumnWidth = 900;
+    // Columns, right to left on the page: م | اسم الملف | عدد الصفحات
+    private const int IndexColumnWidth = 850;
     private const int PagesColumnWidth = 2000;
     private const int NameColumnWidth = UsableWidthTwips - IndexColumnWidth - PagesColumnWidth;
 
-    private const string HeaderShading = "D9D9D9";
+    // The headline figures sit in three equal cells.
+    private const int FigureColumnWidth = UsableWidthTwips / 3;
 
     public static void Build(string outputPath, IReadOnlyList<FileEntry> entries, ReportOptions options)
     {
@@ -48,7 +52,6 @@ public static class WordReportBuilder
         DocumentProperties.Stamp(document, options);
 
         MainDocumentPart mainPart = document.AddMainDocumentPart();
-
         AddStyles(mainPart, options);
 
         var body = new Body();
@@ -56,27 +59,28 @@ public static class WordReportBuilder
 
         ReportTotals totals = ReportTotals.From(entries);
 
-        body.AppendChild(Title(options));
-        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
-        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
-        body.AppendChild(EmptyParagraph(options));
+        // ---- title block -------------------------------------------------
+        body.AppendChild(TitleParagraph(options));
+        body.AppendChild(MetaParagraph(options));
+        body.AppendChild(Spacer(options, 200));
 
+        // ---- headline figures --------------------------------------------
+        body.AppendChild(FigureBand(totals, options));
+        body.AppendChild(Spacer(options, 240));
+
+        // ---- the data table ----------------------------------------------
         body.AppendChild(BuildTable(entries, options));
 
-        body.AppendChild(EmptyParagraph(options));
-        body.AppendChild(InfoLine(Strings.Summary, options, bold: true));
-        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
-        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
-        body.AppendChild(InfoLine($"{Strings.UnknownFiles}: {Number(totals.Unknown)}", options));
+        // ---- closing summary ---------------------------------------------
+        body.AppendChild(Spacer(options, 260));
+        body.AppendChild(SectionHeading(Strings.Summary, options));
+        body.AppendChild(SummaryLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
+        body.AppendChild(SummaryLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
+        body.AppendChild(SummaryLine($"{Strings.UnknownFiles}: {Number(totals.Unknown)}", options));
 
-        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
-        {
-            body.AppendChild(EmptyParagraph(options));
-            body.AppendChild(InfoLine($"{Strings.PreparedBy}: {options.DeveloperName}", options));
-        }
-
+        string? headerId = AddHeader(mainPart, options);
         string? footerId = options.IncludePageNumbers ? AddFooter(mainPart, options) : null;
-        body.AppendChild(BuildSectionProperties(footerId));
+        body.AppendChild(BuildSectionProperties(headerId, footerId));
 
         mainPart.Document.Save();
     }
@@ -92,6 +96,7 @@ public static class WordReportBuilder
                 new RunPropertiesDefault(
                     new RunPropertiesBaseStyle(
                         Fonts(options),
+                        new DocumentFormat.OpenXml.Wordprocessing.Color { Val = ReportTheme.TextColor },
                         new FontSize { Val = HalfPoints(options.FontSize) },
                         new FontSizeComplexScript { Val = HalfPoints(options.FontSize) })),
                 new ParagraphPropertiesDefault(
@@ -115,62 +120,102 @@ public static class WordReportBuilder
         EastAsia = options.FontFamily
     };
 
-    // ------------------------------------------------------------ paragraphs
+    // ----------------------------------------------------------- title block
 
-    private static Paragraph Title(ReportOptions options) =>
-        BuildParagraph(options.Title, options, bold: true, JustificationValues.Center, spaceAfter: 240);
+    private static Paragraph TitleParagraph(ReportOptions options) =>
+        BuildParagraph(
+            options.Title,
+            new TextStyle(
+                Size: ReportTheme.Step(options.FontSize, ReportTheme.TitleStep),
+                Bold: true,
+                Color: ReportTheme.Accent),
+            options,
+            JustificationValues.Center,
+            spaceAfter: 60,
+            bottomRule: true);
 
-    private static Paragraph InfoLine(string text, ReportOptions options, bool bold = false) =>
-        BuildParagraph(text, options, bold, JustificationValues.Right, spaceAfter: 60);
-
-    private static Paragraph EmptyParagraph(ReportOptions options) =>
-        BuildParagraph(string.Empty, options, bold: false, JustificationValues.Right, spaceAfter: 0);
-
-    private static Paragraph BuildParagraph(
-        string text,
-        ReportOptions options,
-        bool bold,
-        JustificationValues justification,
-        int spaceAfter)
+    /// <summary>
+    /// The generation date, in the Gregorian calendar with invariant digits. Formatting it with
+    /// the ar-SA culture would silently switch to the Hijri calendar, which is not what an
+    /// archive index wants.
+    /// </summary>
+    private static Paragraph MetaParagraph(ReportOptions options)
     {
-        var properties = new ParagraphProperties(
-            new BiDi(),
-            new SpacingBetweenLines
-            {
-                After = spaceAfter.ToString(CultureInfo.InvariantCulture),
-                Before = "0",
-                Line = "276",
-                LineRule = LineSpacingRuleValues.Auto
-            },
-            new Justification { Val = justification });
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd  HH:mm", CultureInfo.InvariantCulture);
 
-        var paragraph = new Paragraph(properties);
-
-        if (text.Length > 0)
-        {
-            paragraph.AppendChild(BuildRun(text, options, bold));
-        }
-
-        return paragraph;
+        return BuildParagraph(
+            $"تاريخ الإنشاء: {stamp}",
+            new TextStyle(
+                Size: ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
+                Bold: false,
+                Color: ReportTheme.MutedColor),
+            options,
+            JustificationValues.Center,
+            spaceAfter: 0);
     }
 
-    private static Run BuildRun(string text, ReportOptions options, bool bold)
+    // ------------------------------------------------------- headline figures
+
+    private static Table FigureBand(ReportTotals totals, ReportOptions options)
     {
-        var properties = new RunProperties(Fonts(options));
+        var table = new Table(
+            new TableProperties(
+                new BiDiVisual(),
+                new TableWidth { Width = Twips(UsableWidthTwips), Type = TableWidthUnitValues.Dxa },
+                new TableJustification { Val = TableRowAlignmentValues.Center },
+                new TableBorders(
+                    Border<TopBorder>(6U, ReportTheme.BorderColor),
+                    Border<BottomBorder>(6U, ReportTheme.BorderColor),
+                    Border<LeftBorder>(6U, ReportTheme.BorderColor),
+                    Border<RightBorder>(6U, ReportTheme.BorderColor),
+                    Border<InsideVerticalBorder>(6U, ReportTheme.BorderColor)),
+                new TableLayout { Type = TableLayoutValues.Fixed },
+                CellMargins(top: 120, bottom: 120, side: 80),
+                new TableLook { Val = "0000", FirstRow = false, LastRow = false, FirstColumn = false, LastColumn = false, NoHorizontalBand = true, NoVerticalBand = true }),
+            new TableGrid(
+                new GridColumn { Width = Twips(FigureColumnWidth) },
+                new GridColumn { Width = Twips(FigureColumnWidth) },
+                new GridColumn { Width = Twips(FigureColumnWidth) }));
 
-        if (bold)
-        {
-            properties.AppendChild(new Bold());
-            properties.AppendChild(new BoldComplexScript());
-        }
+        var row = new TableRow(new TableRowProperties(new CantSplit()));
 
-        properties.AppendChild(new FontSize { Val = HalfPoints(options.FontSize) });
-        properties.AppendChild(new FontSizeComplexScript { Val = HalfPoints(options.FontSize) });
-        properties.AppendChild(new RightToLeftText());
+        row.AppendChild(FigureCell(Strings.TotalFiles, Number(totals.Files), options));
+        row.AppendChild(FigureCell(Strings.TotalPages, Number(totals.Pages), options));
+        row.AppendChild(FigureCell(Strings.UnknownFiles, Number(totals.Unknown), options));
 
-        return new Run(
-            properties,
-            new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+        table.AppendChild(row);
+        return table;
+    }
+
+    /// <summary>One headline figure: the number in accent, the label small and muted beneath it.</summary>
+    private static TableCell FigureCell(string label, string value, ReportOptions options)
+    {
+        var properties = new TableCellProperties(
+            new TableCellWidth { Width = Twips(FigureColumnWidth), Type = TableWidthUnitValues.Dxa },
+            new Shading { Val = ShadingPatternValues.Clear, Color = "auto", Fill = ReportTheme.PanelFill },
+            new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
+
+        var figure = BuildParagraph(
+            value,
+            new TextStyle(
+                Size: ReportTheme.Step(options.FontSize, ReportTheme.FigureStep),
+                Bold: true,
+                Color: ReportTheme.Accent),
+            options,
+            JustificationValues.Center,
+            spaceAfter: 40);
+
+        var caption = BuildParagraph(
+            label,
+            new TextStyle(
+                Size: ReportTheme.Step(options.FontSize, ReportTheme.CaptionStep),
+                Bold: false,
+                Color: ReportTheme.MutedColor),
+            options,
+            JustificationValues.Center,
+            spaceAfter: 0);
+
+        return new TableCell(properties, figure, caption);
     }
 
     // ----------------------------------------------------------------- table
@@ -179,67 +224,83 @@ public static class WordReportBuilder
     {
         var table = new Table(
             new TableProperties(
-                new BiDiVisual(),                                     // first column renders on the right
-                new TableWidth { Width = UsableWidthTwips.ToString(CultureInfo.InvariantCulture), Type = TableWidthUnitValues.Dxa },
+                new BiDiVisual(),                                   // first column renders on the right
+                new TableWidth { Width = Twips(UsableWidthTwips), Type = TableWidthUnitValues.Dxa },
                 new TableJustification { Val = TableRowAlignmentValues.Center },
-                Borders(),
+                new TableBorders(
+                    Border<TopBorder>(8U, ReportTheme.Accent),
+                    Border<BottomBorder>(8U, ReportTheme.Accent),
+                    Border<LeftBorder>(4U, ReportTheme.BorderColor),
+                    Border<RightBorder>(4U, ReportTheme.BorderColor),
+                    Border<InsideHorizontalBorder>(4U, ReportTheme.BorderColor),
+                    Border<InsideVerticalBorder>(4U, ReportTheme.BorderColor)),
                 new TableLayout { Type = TableLayoutValues.Fixed },
-                new TableCellMarginDefault(
-                    new TopMargin { Width = "40", Type = TableWidthUnitValues.Dxa },
-                    new TableCellLeftMargin { Width = (short)80, Type = TableWidthValues.Dxa },
-                    new BottomMargin { Width = "40", Type = TableWidthUnitValues.Dxa },
-                    new TableCellRightMargin { Width = (short)80, Type = TableWidthValues.Dxa }),
-                new TableLook { Val = "04A0", FirstRow = true, LastRow = false, FirstColumn = true, LastColumn = false, NoHorizontalBand = false, NoVerticalBand = true }),
+                CellMargins(top: 70, bottom: 70, side: 100),
+                new TableLook { Val = "04A0", FirstRow = true, LastRow = false, FirstColumn = false, LastColumn = false, NoHorizontalBand = false, NoVerticalBand = true }),
             new TableGrid(
-                new GridColumn { Width = IndexColumnWidth.ToString(CultureInfo.InvariantCulture) },
-                new GridColumn { Width = NameColumnWidth.ToString(CultureInfo.InvariantCulture) },
-                new GridColumn { Width = PagesColumnWidth.ToString(CultureInfo.InvariantCulture) }));
+                new GridColumn { Width = Twips(IndexColumnWidth) },
+                new GridColumn { Width = Twips(NameColumnWidth) },
+                new GridColumn { Width = Twips(PagesColumnWidth) }));
 
         table.AppendChild(HeaderRow(options));
 
+        bool banded = false;
         foreach (FileEntry entry in entries)
         {
-            table.AppendChild(DataRow(entry, options));
+            table.AppendChild(DataRow(entry, options, banded));
+            banded = !banded;
         }
 
         return table;
-    }
-
-    private static TableBorders Borders()
-    {
-        // Border width is in eighths of a point: 8 = 1 pt outer, 4 = 0.5 pt inner.
-        return new TableBorders(
-            new TopBorder { Val = BorderValues.Single, Size = 8U, Color = "000000" },
-            new BottomBorder { Val = BorderValues.Single, Size = 8U, Color = "000000" },
-            new LeftBorder { Val = BorderValues.Single, Size = 8U, Color = "000000" },
-            new RightBorder { Val = BorderValues.Single, Size = 8U, Color = "000000" },
-            new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4U, Color = "000000" },
-            new InsideVerticalBorder { Val = BorderValues.Single, Size = 4U, Color = "000000" });
     }
 
     private static TableRow HeaderRow(ReportOptions options)
     {
         var row = new TableRow(
             new TableRowProperties(
-                new CantSplit(),      // never break the header itself
-                new TableHeader()));  // repeat this row at the top of every page
+                new CantSplit(),                                                        // never break the header
+                new TableRowHeight { Val = 460U, HeightType = HeightRuleValues.AtLeast },
+                new TableHeader()));                                                    // repeat on every page
 
-        row.AppendChild(Cell(Strings.ColumnIndex, IndexColumnWidth, options, bold: true, JustificationValues.Center, HeaderShading));
-        row.AppendChild(Cell(Strings.ColumnFileName, NameColumnWidth, options, bold: true, JustificationValues.Center, HeaderShading));
-        row.AppendChild(Cell(Strings.ColumnPages, PagesColumnWidth, options, bold: true, JustificationValues.Center, HeaderShading));
+        var style = new TextStyle(options.FontSize, Bold: true, Color: ReportTheme.OnAccent);
+
+        row.AppendChild(Cell(Strings.ColumnIndex, IndexColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+        row.AppendChild(Cell(Strings.ColumnFileName, NameColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
+        row.AppendChild(Cell(Strings.ColumnPages, PagesColumnWidth, style, options, JustificationValues.Center, ReportTheme.Accent));
 
         return row;
     }
 
-    private static TableRow DataRow(FileEntry entry, ReportOptions options)
+    private static TableRow DataRow(FileEntry entry, ReportOptions options, bool banded)
     {
         var row = new TableRow(
             new TableRowProperties(
-                new CantSplit())); // keep a row whole instead of splitting it over two pages
+                new CantSplit(),  // keep a row whole rather than splitting it over two pages
+                new TableRowHeight { Val = 340U, HeightType = HeightRuleValues.AtLeast }));
 
-        row.AppendChild(Cell(Number(entry.Index), IndexColumnWidth, options, bold: false, JustificationValues.Center, shading: null));
-        row.AppendChild(Cell(entry.DisplayName, NameColumnWidth, options, bold: false, JustificationValues.Right, shading: null));
-        row.AppendChild(Cell(entry.PageCountText, PagesColumnWidth, options, bold: false, JustificationValues.Center, shading: null));
+        string? fill = banded ? ReportTheme.BandFill : null;
+
+        var normal = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor);
+        var muted = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.MutedColor);
+
+        // A row number is an ordinal, not a quantity — no thousands separator.
+        row.AppendChild(Cell(
+            entry.Index.ToString(CultureInfo.InvariantCulture),
+            IndexColumnWidth,
+            muted,
+            options,
+            JustificationValues.Center,
+            fill));
+        row.AppendChild(Cell(entry.DisplayName, NameColumnWidth, normal, options, JustificationValues.Right, fill));
+
+        // An undetermined count is stated plainly but never shouts: muted, not bold.
+        row.AppendChild(Cell(
+            entry.PageCountText,
+            PagesColumnWidth,
+            entry.PageCount.HasValue ? normal : muted,
+            options,
+            JustificationValues.Center,
+            fill));
 
         return row;
     }
@@ -247,13 +308,13 @@ public static class WordReportBuilder
     private static TableCell Cell(
         string text,
         int widthTwips,
+        TextStyle style,
         ReportOptions options,
-        bool bold,
         JustificationValues justification,
         string? shading)
     {
         var properties = new TableCellProperties(
-            new TableCellWidth { Width = widthTwips.ToString(CultureInfo.InvariantCulture), Type = TableWidthUnitValues.Dxa });
+            new TableCellWidth { Width = Twips(widthTwips), Type = TableWidthUnitValues.Dxa });
 
         if (shading is not null)
         {
@@ -264,14 +325,175 @@ public static class WordReportBuilder
 
         return new TableCell(
             properties,
-            BuildParagraph(text, options, bold, justification, spaceAfter: 0));
+            BuildParagraph(text, style, options, justification, spaceAfter: 0));
+    }
+
+    // --------------------------------------------------------------- summary
+
+    private static Paragraph SectionHeading(string text, ReportOptions options) =>
+        BuildParagraph(
+            text,
+            new TextStyle(options.FontSize, Bold: true, Color: ReportTheme.Accent),
+            options,
+            JustificationValues.Right,
+            spaceAfter: 80,
+            bottomRule: true);
+
+    private static Paragraph SummaryLine(string text, ReportOptions options) =>
+        BuildParagraph(
+            text,
+            new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor),
+            options,
+            JustificationValues.Right,
+            spaceAfter: 60);
+
+    private static Paragraph Spacer(ReportOptions options, int spaceAfter) =>
+        BuildParagraph(
+            string.Empty,
+            new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor),
+            options,
+            JustificationValues.Right,
+            spaceAfter);
+
+    // ------------------------------------------------------ paragraphs & runs
+
+    /// <summary>Size in points, weight and colour of one run of text.</summary>
+    private readonly record struct TextStyle(int Size, bool Bold, string Color);
+
+    private static Paragraph BuildParagraph(
+        string text,
+        TextStyle style,
+        ReportOptions options,
+        JustificationValues justification,
+        int spaceAfter,
+        bool bottomRule = false)
+    {
+        var properties = new ParagraphProperties();
+
+        // Schema order inside pPr: pBdr, bidi, spacing, ind, jc.
+        if (bottomRule)
+        {
+            properties.AppendChild(new ParagraphBorders(
+                new BottomBorder
+                {
+                    Val = BorderValues.Single,
+                    Size = 6U,
+                    Space = 4U,
+                    Color = ReportTheme.AccentSoft
+                }));
+        }
+
+        properties.AppendChild(new BiDi());
+        properties.AppendChild(new SpacingBetweenLines
+        {
+            Before = "0",
+            After = spaceAfter.ToString(CultureInfo.InvariantCulture),
+            Line = "276",
+            LineRule = LineSpacingRuleValues.Auto
+        });
+        properties.AppendChild(new Justification { Val = justification });
+
+        var paragraph = new Paragraph(properties);
+
+        if (text.Length > 0)
+        {
+            paragraph.AppendChild(BuildRun(text, style, options));
+        }
+
+        return paragraph;
+    }
+
+    private static Run BuildRun(string text, TextStyle style, ReportOptions options)
+    {
+        // Schema order inside rPr: rFonts, b, bCs, color, sz, szCs, rtl.
+        var properties = new RunProperties(Fonts(options));
+
+        if (style.Bold)
+        {
+            properties.AppendChild(new Bold());
+            properties.AppendChild(new BoldComplexScript());
+        }
+
+        properties.AppendChild(new DocumentFormat.OpenXml.Wordprocessing.Color { Val = style.Color });
+        properties.AppendChild(new FontSize { Val = HalfPoints(style.Size) });
+        properties.AppendChild(new FontSizeComplexScript { Val = HalfPoints(style.Size) });
+        properties.AppendChild(new RightToLeftText());
+
+        return new Run(
+            properties,
+            new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+    }
+
+    // ------------------------------------------------------- header & footer
+
+    private static string AddHeader(MainDocumentPart mainPart, ReportOptions options)
+    {
+        HeaderPart headerPart = mainPart.AddNewPart<HeaderPart>();
+
+        var paragraph = BuildParagraph(
+            options.Title,
+            new TextStyle(
+                Size: ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
+                Bold: false,
+                Color: ReportTheme.MutedColor),
+            options,
+            JustificationValues.Right,
+            spaceAfter: 0,
+            bottomRule: true);
+
+        headerPart.Header = new Header(paragraph);
+        headerPart.Header.Save();
+
+        return mainPart.GetIdOfPart(headerPart);
+    }
+
+    private static string AddFooter(MainDocumentPart mainPart, ReportOptions options)
+    {
+        FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
+
+        var style = new TextStyle(
+            Size: ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
+            Bold: false,
+            Color: ReportTheme.MutedColor);
+
+        var paragraph = BuildParagraph(
+            string.Empty,
+            style,
+            options,
+            JustificationValues.Center,
+            spaceAfter: 0);
+
+        paragraph.AppendChild(BuildRun(Strings.PageOf + " ", style, options));
+
+        // The run inside the field is the cached result Word shows until it refreshes the field.
+        paragraph.AppendChild(
+            new SimpleField(BuildRun("1", style, options)) { Instruction = " PAGE " });
+
+        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
+        {
+            paragraph.AppendChild(BuildRun(
+                $"     •     {Strings.PreparedBy}: {options.DeveloperName}",
+                style,
+                options));
+        }
+
+        footerPart.Footer = new Footer(paragraph);
+        footerPart.Footer.Save();
+
+        return mainPart.GetIdOfPart(footerPart);
     }
 
     // ---------------------------------------------------------------- layout
 
-    private static SectionProperties BuildSectionProperties(string? footerId)
+    private static SectionProperties BuildSectionProperties(string? headerId, string? footerId)
     {
         var section = new SectionProperties();
+
+        // Schema order inside sectPr: headerReference, footerReference, pgSz, pgMar, cols, bidi.
+        if (headerId is not null)
+        {
+            section.AppendChild(new HeaderReference { Type = HeaderFooterValues.Default, Id = headerId });
+        }
 
         if (footerId is not null)
         {
@@ -288,10 +510,10 @@ public static class WordReportBuilder
 
         section.AppendChild(new PageMargin
         {
-            Top = MarginTwips,
-            Bottom = MarginTwips,
-            Left = (uint)MarginTwips,
-            Right = (uint)MarginTwips,
+            Top = TopMarginTwips,
+            Bottom = SideMarginTwips,
+            Left = (uint)SideMarginTwips,
+            Right = (uint)SideMarginTwips,
             Header = (uint)HeaderFooterTwips,
             Footer = (uint)HeaderFooterTwips,
             Gutter = 0U
@@ -303,33 +525,24 @@ public static class WordReportBuilder
         return section;
     }
 
-    private static string AddFooter(MainDocumentPart mainPart, ReportOptions options)
-    {
-        FooterPart footerPart = mainPart.AddNewPart<FooterPart>();
-
-        var paragraphProperties = new ParagraphProperties(
-            new BiDi(),
-            new Justification { Val = JustificationValues.Center });
-
-        var footerParagraph = new Paragraph(paragraphProperties);
-
-        footerParagraph.AppendChild(BuildRun(Strings.PageOf + " ", options, bold: false));
-
-        // The run inside the field is the cached result Word shows until it refreshes the field.
-        footerParagraph.AppendChild(
-            new SimpleField(BuildRun("1", options, bold: false)) { Instruction = " PAGE " });
-
-        footerPart.Footer = new Footer(footerParagraph);
-        footerPart.Footer.Save();
-
-        return mainPart.GetIdOfPart(footerPart);
-    }
-
     // --------------------------------------------------------------- helpers
+
+    private static TBorder Border<TBorder>(UInt32Value size, string color)
+        where TBorder : BorderType, new() =>
+        new() { Val = BorderValues.Single, Size = size, Color = color };
+
+    private static TableCellMarginDefault CellMargins(int top, int bottom, int side) =>
+        new(
+            new TopMargin { Width = Twips(top), Type = TableWidthUnitValues.Dxa },
+            new TableCellLeftMargin { Width = (short)side, Type = TableWidthValues.Dxa },
+            new BottomMargin { Width = Twips(bottom), Type = TableWidthUnitValues.Dxa },
+            new TableCellRightMargin { Width = (short)side, Type = TableWidthValues.Dxa });
+
+    private static string Twips(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static string HalfPoints(int pointSize) =>
         (pointSize * 2).ToString(CultureInfo.InvariantCulture);
 
     private static string Number(long value) =>
-        value.ToString(CultureInfo.InvariantCulture);
+        value.ToString("N0", CultureInfo.InvariantCulture);
 }

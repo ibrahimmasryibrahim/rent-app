@@ -146,15 +146,39 @@
         <!-- Actions and status -->
         <Border Grid.Row="4" Style="{StaticResource PanelStyle}" Margin="0">
             <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                    <Button Content="📝  إنشاء ملف Word"
-                            Style="{StaticResource PrimaryButton}"
+                <TextBlock Text="تصدير التقرير" Style="{StaticResource LabelStyle}" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                    <Button Style="{StaticResource ExportButton}"
+                            Background="{StaticResource WordBlue}"
+                            Tag="{StaticResource WordBlueHover}"
                             Command="{Binding CreateWordCommand}"
-                            MinWidth="170" />
-                    <Button Content="📊  إنشاء ملف Excel"
-                            Style="{StaticResource PrimaryButton}"
+                            ToolTip="إنشاء تقرير Word (‎.docx‎) منسّق وجاهز للطباعة">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📝" FontSize="19" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBlock Text="تصدير إلى Word" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource ExportButton}"
+                            Background="{StaticResource ExcelGreen}"
+                            Tag="{StaticResource ExcelGreenHover}"
                             Command="{Binding CreateExcelCommand}"
-                            MinWidth="170" />
+                            ToolTip="إنشاء جدول Excel (‎.xlsx‎) قابل للفرز والجمع">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📊" FontSize="19" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBlock Text="تصدير إلى Excel" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Text="{Binding ExportHint}"
+                               VerticalAlignment="Center"
+                               Margin="10,0,0,0"
+                               FontSize="13"
+                               Foreground="{StaticResource AppMuted}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                     <Button Content="🗑  مسح" Command="{Binding ClearCommand}" MinWidth="100" />
                     <Button Content="⏹  إيقاف" Command="{Binding CancelCommand}" MinWidth="100" />
                     <Button Content="📋  حفظ سجل التفاصيل"

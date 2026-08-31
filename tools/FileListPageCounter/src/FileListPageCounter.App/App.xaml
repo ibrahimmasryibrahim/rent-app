@@ -82,6 +82,50 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
+        <!-- Export actions are the point of the application, so they are the only tall, filled,
+             colour-coded buttons on the window. Word blue and Excel green match the two
+             applications, which is the fastest label a user can read. -->
+        <SolidColorBrush x:Key="WordBlue" Color="#1F4E79" />
+        <SolidColorBrush x:Key="WordBlueHover" Color="#2E6DA4" />
+        <SolidColorBrush x:Key="ExcelGreen" Color="#1D6F42" />
+        <SolidColorBrush x:Key="ExcelGreenHover" Color="#27935A" />
+
+        <Style x:Key="ExportButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Height" Value="46" />
+            <Setter Property="MinWidth" Value="210" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background"
+                                        Value="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=Tag}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <!-- Disabled must read as "not yet", not as a faint smudge. -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Background" Value="#E3E7EC" />
+                                <Setter Property="Foreground" Value="#98A2AE" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="CheckBox">
             <Setter Property="Margin" Value="0,0,0,8" />
             <Setter Property="FontSize" Value="14" />
