@@ -115,12 +115,32 @@ PDF يُفتح في وضع القراءة فقط، ولا تُقرأ إلا شج
 
 ---
 
-## 5. البناء (Build)
+## 5. الحصول على البرنامج
 
-### المتطلب الوحيد
+### أ. الطريقة الأسهل — تنزيل نسخة جاهزة (بدون تثبيت أي شيء)
+
+كل دفعة إلى هذا الفرع تُبنى تلقائيًا على جهاز Windows لدى GitHub، وتُرفع نتيجتها
+جاهزة للتنزيل:
+
+1. افتح صفحة عمليات البناء:
+   <https://github.com/ibrahimmasryibrahim/rent-app/actions/workflows/file-list-page-counter.yml>
+2. اضغط على أحدث عملية ناجحة (بجوارها علامة ✅ خضراء).
+3. انزل إلى قسم **Artifacts** في أسفل الصفحة.
+4. اضغط **FileListPageCounter-windows-x64** — سيُنزَّل ملف مضغوط (~61 ميغابايت).
+5. فُكّ الضغط، ثم انقر نقرًا مزدوجًا على **`FileListPageCounter.exe`**.
+
+يعمل مباشرة على أي جهاز Windows 10/11 (64-bit) — لا يحتاج تثبيت .NET ولا أي أداة أخرى.
+يتطلب تسجيل الدخول إلى GitHub لتنزيل الـ Artifact.
+
+> ملاحظة: تحتفظ GitHub بهذه الملفات لمدة 90 يومًا. بعدها، افتح صفحة البناء واضغط
+> **Re-run all jobs** للحصول على نسخة جديدة، أو ابْنِ محليًا كما في الفقرة التالية.
+
+### ب. البناء على جهازك (Build)
+
+#### المتطلب الوحيد
 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) على جهاز Windows.
 
-### الطريقة الأسهل
+#### بنقرة واحدة
 انقر نقرًا مزدوجًا على **`build.cmd`**.
 
 يقوم بـ: استرجاع الحزم ← تشغيل كل الاختبارات ← إنتاج EXE مستقل في مجلد `publish\`.
@@ -133,11 +153,11 @@ publish\FileListPageCounter.exe     ← انقر عليه مرتين وسيعم�
 ولا إلى أي أداة أخرى. انسخ مجلد `publish` إلى أي جهاز Windows 10/11 (x64) وشغّله.
 وجود `portable.txt` بجانب الـ EXE يجعل الإعدادات تُحفظ بجواره بدل `%APPDATA%` (وضع Portable).
 
-### نسخة أخف الحجم
+#### نسخة أخف الحجم
 `build-framework-dependent.cmd` ينتج EXE صغيرًا (بضعة ميغابايت) لكنه يتطلب
 تثبيت **.NET 8 Desktop Runtime** على الجهاز المستهدف.
 
-### من سطر الأوامر مباشرة
+#### من سطر الأوامر مباشرة
 ```bat
 dotnet publish src\FileListPageCounter.App -c Release -r win-x64 --self-contained true ^
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
@@ -149,6 +169,8 @@ dotnet publish src\FileListPageCounter.App -c Release -r win-x64 --self-containe
 ---
 
 ## 6. الاختبارات (Testing)
+
+> آخر تشغيل على Windows عبر GitHub Actions: **69 اختبارًا، نجحت كلها**.
 
 ```bat
 run-tests.cmd
