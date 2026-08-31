@@ -72,12 +72,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A stable tag keeps the download link working forever; the title carries no version
+          # number so it can never disagree with what the zip actually contains.
           $tag = 'file-list-page-counter-v1.0.0'
-          $notes = "استخراج أسماء الملفات وعدد الصفحات`n`nنزّل FileListPageCounter-windows-x64.zip من الأسفل، فُكّ الضغط، ثم شغّل FileListPageCounter.exe.`nيعمل على Windows 10/11 (64-bit) بدون تثبيت أي شيء.`n`nBuilt from commit $env:GITHUB_SHA"
+          $title = 'FILE LIST & PAGE COUNTER — أحدث إصدار'
+          $notes = "استخراج أسماء الملفات وعدد الصفحات`nتطوير: Ibrahim Masry Ibrahim`n`nنزّل FileListPageCounter-windows-x64.zip من الأسفل، فُكّ الضغط، ثم شغّل FileListPageCounter.exe.`nيعمل على Windows 10/11 (64-bit) بدون تثبيت أي شيء.`n`nآخر تحديث من الالتزام $env:GITHUB_SHA"
           gh release view $tag > $null 2>&1
           if ($LASTEXITCODE -eq 0) {
               gh release upload $tag FileListPageCounter-windows-x64.zip --clobber
-              gh release edit $tag --notes $notes --target $env:GITHUB_SHA
+              gh release edit $tag --title $title --notes $notes --target $env:GITHUB_SHA
           } else {
-              gh release create $tag FileListPageCounter-windows-x64.zip --title 'FILE LIST & PAGE COUNTER 1.0.0' --notes $notes --target $env:GITHUB_SHA
+              gh release create $tag FileListPageCounter-windows-x64.zip --title $title --notes $notes --target $env:GITHUB_SHA
           }
