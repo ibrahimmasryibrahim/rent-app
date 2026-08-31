@@ -20,8 +20,18 @@ public sealed class ReportOptions
         set => _fontSize = Array.IndexOf(AllowedFontSizes, value) >= 0 ? value : DefaultFontSize;
     }
 
-    public string Title { get; set; } = Strings.ReportTitle;
+    private string _title = Strings.ReportTitle;
 
-    /// <summary>Adds a "صفحة X من Y" footer for printing.</summary>
+    /// <summary>Heading of the report. Falls back to the standard title when cleared.</summary>
+    public string Title
+    {
+        get => _title;
+        set => _title = string.IsNullOrWhiteSpace(value) ? Strings.ReportTitle : value.Trim();
+    }
+
+    /// <summary>Credited on every report and written into the document properties.</summary>
+    public string DeveloperName { get; set; } = Strings.Developer;
+
+    /// <summary>Adds a "صفحة X" footer for printing.</summary>
     public bool IncludePageNumbers { get; set; } = true;
 }

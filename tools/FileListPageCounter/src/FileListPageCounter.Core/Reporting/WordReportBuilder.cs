@@ -45,6 +45,8 @@ public static class WordReportBuilder
         using WordprocessingDocument document =
             WordprocessingDocument.Create(outputPath, WordprocessingDocumentType.Document);
 
+        DocumentProperties.Stamp(document, options);
+
         MainDocumentPart mainPart = document.AddMainDocumentPart();
 
         AddStyles(mainPart, options);
@@ -52,28 +54,26 @@ public static class WordReportBuilder
         var body = new Body();
         mainPart.Document = new Document(body);
 
-        int totalFiles = entries.Count;
-        long totalPages = 0;
-        int unknownCount = 0;
-
-        foreach (FileEntry entry in entries)
-        {
-            if (entry.PageCount.HasValue) totalPages += entry.PageCount.Value;
-            else unknownCount++;
-        }
+        ReportTotals totals = ReportTotals.From(entries);
 
         body.AppendChild(Title(options));
-        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totalFiles)}", options));
-        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totalPages)}", options));
+        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
+        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
         body.AppendChild(EmptyParagraph(options));
 
         body.AppendChild(BuildTable(entries, options));
 
         body.AppendChild(EmptyParagraph(options));
         body.AppendChild(InfoLine(Strings.Summary, options, bold: true));
-        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totalFiles)}", options));
-        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totalPages)}", options));
-        body.AppendChild(InfoLine($"{Strings.UnknownFiles}: {Number(unknownCount)}", options));
+        body.AppendChild(InfoLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
+        body.AppendChild(InfoLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
+        body.AppendChild(InfoLine($"{Strings.UnknownFiles}: {Number(totals.Unknown)}", options));
+
+        if (!string.IsNullOrWhiteSpace(options.DeveloperName))
+        {
+            body.AppendChild(EmptyParagraph(options));
+            body.AppendChild(InfoLine($"{Strings.PreparedBy}: {options.DeveloperName}", options));
+        }
 
         string? footerId = options.IncludePageNumbers ? AddFooter(mainPart, options) : null;
         body.AppendChild(BuildSectionProperties(footerId));

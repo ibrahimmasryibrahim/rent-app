@@ -26,6 +26,9 @@ public sealed class AppSettings
 
     public bool OpenAfterCreate { get; set; } = true;
 
+    /// <summary>Use the selected folder's own name as the report heading.</summary>
+    public bool UseFolderNameAsTitle { get; set; } = true;
+
     [JsonIgnore]
     public static string SettingsPath
     {

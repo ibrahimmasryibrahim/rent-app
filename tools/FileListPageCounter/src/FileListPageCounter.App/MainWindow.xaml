@@ -82,11 +82,19 @@
                     <CheckBox Content="تجاهل الملفات غير المدعومة" IsChecked="{Binding IgnoreUnsupportedFiles}" />
                     <CheckBox Content="احتساب صفحات ملفات TIFF متعددة الصفحات" IsChecked="{Binding CountTiffFrames}" />
                     <CheckBox Content="التحقق من عدم تغيّر الملفات الأصلية بعد الفحص" IsChecked="{Binding VerifyIntegrity}" />
-                    <CheckBox Content="عرض خيار فتح الملف بعد إنشائه" IsChecked="{Binding OpenAfterCreate}" Margin="0" />
+                    <CheckBox Content="عرض خيار فتح الملف بعد إنشائه" IsChecked="{Binding OpenAfterCreate}" />
+                    <CheckBox Content="استخدام اسم المجلد كعنوان للتقرير" IsChecked="{Binding UseFolderNameAsTitle}" Margin="0" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" MinWidth="240">
-                    <TextBlock Text="حجم الخط في ملف Word" Style="{StaticResource LabelStyle}" />
+                <StackPanel Grid.Column="1" MinWidth="270">
+                    <TextBlock Text="عنوان التقرير" Style="{StaticResource LabelStyle}" />
+                    <TextBox Text="{Binding ReportTitle, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="6,5"
+                             FontSize="14"
+                             Margin="0,0,0,12"
+                             ToolTip="يظهر في أعلى ملف Word و Excel، ويُقترح كاسم للملف عند الحفظ." />
+
+                    <TextBlock Text="حجم الخط في التقرير" Style="{StaticResource LabelStyle}" />
                     <ComboBox ItemsSource="{Binding FontSizes}"
                               SelectedItem="{Binding FontSize}"
                               Margin="0,0,0,12" />
@@ -143,11 +151,15 @@
                             Style="{StaticResource PrimaryButton}"
                             Command="{Binding CreateWordCommand}"
                             MinWidth="170" />
-                    <Button Content="🗑  مسح" Command="{Binding ClearCommand}" MinWidth="110" />
-                    <Button Content="⏹  إيقاف" Command="{Binding CancelCommand}" MinWidth="110" />
+                    <Button Content="📊  إنشاء ملف Excel"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding CreateExcelCommand}"
+                            MinWidth="170" />
+                    <Button Content="🗑  مسح" Command="{Binding ClearCommand}" MinWidth="100" />
+                    <Button Content="⏹  إيقاف" Command="{Binding CancelCommand}" MinWidth="100" />
                     <Button Content="📋  حفظ سجل التفاصيل"
                             Command="{Binding SaveLogCommand}"
-                            MinWidth="170"
+                            MinWidth="160"
                             Visibility="{Binding HasLogEntries, Converter={StaticResource BoolToVisibility}}" />
                 </StackPanel>
 
@@ -172,9 +184,24 @@
                                MinWidth="200" />
                 </Grid>
 
-                <TextBlock Text="{Binding StatusText}"
-                           Style="{StaticResource ValueStyle}"
-                           Margin="0,8,0,0" />
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding StatusText}"
+                               Style="{StaticResource ValueStyle}" />
+
+                    <TextBlock Grid.Column="1"
+                               FlowDirection="LeftToRight"
+                               Foreground="{StaticResource AppMuted}"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="16,0,0,0"
+                               Text="Developed by Ibrahim Masry Ibrahim" />
+                </Grid>
             </StackPanel>
         </Border>
     </Grid>

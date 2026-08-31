@@ -53,6 +53,7 @@ public sealed class MainViewModel : ObservableObject
     private string? _lastLogPath;
     private int _logEntryCount;
     private ProcessingLog? _lastLog;
+    private string _reportTitle = Strings.ReportTitle;
 
     public MainViewModel(IDialogService dialogs)
     {
@@ -62,6 +63,7 @@ public sealed class MainViewModel : ObservableObject
         SelectFolderCommand = new AsyncRelayCommand(SelectFolderAsync, () => !IsBusy);
         SelectFilesCommand = new AsyncRelayCommand(SelectFilesAsync, () => !IsBusy);
         CreateWordCommand = new RelayCommand(CreateWord, () => !IsBusy && Entries.Count > 0);
+        CreateExcelCommand = new RelayCommand(CreateExcel, () => !IsBusy && Entries.Count > 0);
         ClearCommand = new RelayCommand(Clear, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         SaveLogCommand = new RelayCommand(SaveLog, () => HasLogEntries);
@@ -74,6 +76,8 @@ public sealed class MainViewModel : ObservableObject
     public AsyncRelayCommand SelectFilesCommand { get; }
 
     public RelayCommand CreateWordCommand { get; }
+
+    public RelayCommand CreateExcelCommand { get; }
 
     public RelayCommand ClearCommand { get; }
 
@@ -88,9 +92,22 @@ public sealed class MainViewModel : ObservableObject
         get => _entries;
         private set
         {
-            if (SetProperty(ref _entries, value)) CreateWordCommand.RaiseCanExecuteChanged();
+            if (!SetProperty(ref _entries, value)) return;
+
+            CreateWordCommand.RaiseCanExecuteChanged();
+            CreateExcelCommand.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>Heading printed at the top of the Word and Excel reports.</summary>
+    public string ReportTitle
+    {
+        get => _reportTitle;
+        set => SetProperty(ref _reportTitle, value);
+    }
+
+    /// <summary>The tool's author, shown in the window and stamped into every report.</summary>
+    public static string Developer => Strings.Developer;
 
     public string SourceDescription
     {
@@ -127,6 +144,7 @@ public sealed class MainViewModel : ObservableObject
             SelectFolderCommand.RaiseCanExecuteChanged();
             SelectFilesCommand.RaiseCanExecuteChanged();
             CreateWordCommand.RaiseCanExecuteChanged();
+            CreateExcelCommand.RaiseCanExecuteChanged();
             ClearCommand.RaiseCanExecuteChanged();
             CancelCommand.RaiseCanExecuteChanged();
         }
@@ -241,6 +259,40 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    public bool UseFolderNameAsTitle
+    {
+        get => _settings.UseFolderNameAsTitle;
+        set
+        {
+            if (_settings.UseFolderNameAsTitle == value) return;
+
+            _settings.UseFolderNameAsTitle = value;
+            _settings.Save();
+            OnPropertyChanged();
+
+            ReportTitle = value && _sourceFolder is not null
+                ? FolderTitle(_sourceFolder)
+                : Strings.ReportTitle;
+        }
+    }
+
+    /// <summary>
+    /// The folder's own name, which is what a user means by "name the report after the folder".
+    /// A drive root has no name of its own, so its path stands in for one.
+    /// </summary>
+    private static string FolderTitle(string folder)
+    {
+        try
+        {
+            string name = new DirectoryInfo(folder).Name;
+            return string.IsNullOrWhiteSpace(name) ? folder : name;
+        }
+        catch (Exception)
+        {
+            return Strings.ReportTitle;
+        }
+    }
+
     public IReadOnlyList<int> FontSizes => ReportOptions.AllowedFontSizes;
 
     public int FontSize
@@ -288,6 +340,11 @@ public sealed class MainViewModel : ObservableObject
         _sourceFolder = folder;
         _selectedFiles = null;
         SourceDescription = folder;
+
+        if (UseFolderNameAsTitle)
+        {
+            ReportTitle = FolderTitle(folder);
+        }
 
         await RescanAsync().ConfigureAwait(true);
     }
@@ -392,11 +449,37 @@ public sealed class MainViewModel : ObservableObject
         UnknownCount = view.Count(e => !e.PageCount.HasValue);
     }
 
-    private void CreateWord()
+    private void CreateWord() => CreateReport(
+        ".docx",
+        "مستند Word",
+        "Word",
+        static (path, entries, options) => WordReportBuilder.Build(path, entries, options));
+
+    private void CreateExcel() => CreateReport(
+        ".xlsx",
+        "مصنّف Excel",
+        "Excel",
+        static (path, entries, options) => ExcelReportBuilder.Build(path, entries, options));
+
+    private void CreateReport(
+        string extension,
+        string filterLabel,
+        string formatName,
+        Action<string, IReadOnlyList<FileEntry>, ReportOptions> build)
     {
         if (Entries.Count == 0) return;
 
-        string? target = _dialogs.PickSaveLocation(Strings.DefaultFileName);
+        var reportOptions = new ReportOptions
+        {
+            FontSize = FontSize,
+            Title = ReportTitle
+        };
+
+        string? target = _dialogs.PickSaveLocation(
+            Strings.SuggestFileName(reportOptions.Title, extension),
+            extension,
+            filterLabel);
+
         if (target is null) return;
 
         if (IsInsideSourceFolder(target) &&
@@ -409,15 +492,13 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        var reportOptions = new ReportOptions { FontSize = FontSize };
-
         try
         {
-            WordReportBuilder.Build(target, Entries, reportOptions);
+            build(target, Entries, reportOptions);
         }
         catch (Exception ex)
         {
-            _dialogs.ShowError("تعذر إنشاء ملف Word:\n\n" + ex.Message, "خطأ");
+            _dialogs.ShowError($"تعذر إنشاء ملف {formatName}:\n\n" + ex.Message, "خطأ");
             return;
         }
 
@@ -489,6 +570,7 @@ public sealed class MainViewModel : ObservableObject
         StatusText = "جاهز";
         ProgressText = string.Empty;
         ProgressValue = 0;
+        ReportTitle = Strings.ReportTitle;
     }
 
     private void Cancel() => _cancellation?.Cancel();

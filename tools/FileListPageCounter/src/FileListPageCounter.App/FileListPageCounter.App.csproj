@@ -12,7 +12,10 @@
     <AssemblyTitle>FILE LIST &amp; PAGE COUNTER</AssemblyTitle>
     <Product>FILE LIST &amp; PAGE COUNTER</Product>
     <Description>استخراج أسماء الملفات وعدد الصفحات</Description>
-    <Version>1.0.0</Version>
+    <Authors>Ibrahim Masry Ibrahim</Authors>
+    <Company>Ibrahim Masry Ibrahim</Company>
+    <Copyright>© Ibrahim Masry Ibrahim</Copyright>
+    <Version>1.1.0</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <CodePage>65001</CodePage>

@@ -37,8 +37,8 @@ public class OfflineAndPrivacyTests
             .Select(a => a.Name ?? string.Empty)
             .ToArray();
 
-        Assert.Empty(referenced.Where(name => networking.Contains(name, StringComparer.OrdinalIgnoreCase)));
-        Assert.Empty(referenced.Where(name => name.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(referenced, name => networking.Contains(name, StringComparer.OrdinalIgnoreCase));
+        Assert.DoesNotContain(referenced, name => name.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -50,9 +50,9 @@ public class OfflineAndPrivacyTests
             .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .ToArray();
 
-        Assert.Empty(methods.Where(m =>
+        Assert.DoesNotContain(methods, m =>
             m.ReturnType == typeof(Uri) ||
-            m.GetParameters().Any(p => p.ParameterType == typeof(Uri))));
+            m.GetParameters().Any(p => p.ParameterType == typeof(Uri)));
     }
 
     [Fact]

@@ -37,16 +37,16 @@ public sealed class WindowsDialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.FileNames : null;
     }
 
-    public string? PickSaveLocation(string defaultFileName)
+    public string? PickSaveLocation(string defaultFileName, string extension, string filterLabel)
     {
         var dialog = new SaveFileDialog
         {
-            Title = "حفظ ملف Word",
+            Title = "اختيار مكان الحفظ",
             FileName = defaultFileName,
-            DefaultExt = ".docx",
+            DefaultExt = extension,
             AddExtension = true,
             OverwritePrompt = true,
-            Filter = "مستند Word (*.docx)|*.docx"
+            Filter = $"{filterLabel} (*{extension})|*{extension}"
         };
 
         return dialog.ShowDialog() == true ? dialog.FileName : null;

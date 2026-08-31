@@ -290,4 +290,42 @@ public class WordReportTests
         Assert.Equal(count + 1, table.Elements<TableRow>().Count());
         Assert.Contains($"إجمالي عدد الصفحات: {count}", document.MainDocumentPart.Document.Body!.InnerText);
     }
+
+    [Fact]
+    public async Task The_title_can_be_the_folder_name_or_anything_the_user_types()
+    {
+        using ReportFixture fixture = await BuildReportAsync(options: new ReportOptions { Title = "أرشيف العقود 2026" });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Paragraph title = document.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().First();
+
+        Assert.Equal("أرشيف العقود 2026", title.InnerText);
+        Assert.Equal(JustificationValues.Center, title.ParagraphProperties!.Justification!.Val!.Value);
+        Assert.NotNull(title.Descendants<Bold>().FirstOrDefault());
+    }
+
+    [Fact]
+    public async Task A_blank_title_falls_back_to_the_standard_heading()
+    {
+        using ReportFixture fixture = await BuildReportAsync(options: new ReportOptions { Title = "   " });
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Assert.Equal(
+            "قائمة الملفات وعدد الصفحات",
+            document.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().First().InnerText);
+    }
+
+    [Fact]
+    public async Task The_developer_is_credited_in_the_document_and_its_properties()
+    {
+        using ReportFixture fixture = await BuildReportAsync();
+        using var document = WordprocessingDocument.Open(fixture.Path, false);
+
+        Assert.Contains(
+            "إعداد: Ibrahim Masry Ibrahim",
+            document.MainDocumentPart!.Document!.Body!.InnerText,
+            StringComparison.Ordinal);
+
+        Assert.Equal("Ibrahim Masry Ibrahim", document.PackageProperties.Creator);
+    }
 }

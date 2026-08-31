@@ -6,7 +6,7 @@ public interface IDialogService
 
     IReadOnlyList<string>? PickFiles(IReadOnlyCollection<string> supportedExtensions);
 
-    string? PickSaveLocation(string defaultFileName);
+    string? PickSaveLocation(string defaultFileName, string extension, string filterLabel);
 
     void ShowInfo(string message, string title);
 
