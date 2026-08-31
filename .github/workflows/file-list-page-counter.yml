@@ -1,0 +1,64 @@
+name: Build FILE LIST & PAGE COUNTER
+
+# Builds the Windows desktop tool on a GitHub-hosted Windows machine and
+# publishes the ready-to-run EXE as a downloadable artifact, so no local
+# .NET installation is needed to get a working build.
+
+on:
+  push:
+    branches:
+      - claude/file-list-page-counter-vsfr5s
+    paths:
+      - 'tools/FileListPageCounter/**'
+      - '.github/workflows/file-list-page-counter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: tools/FileListPageCounter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore FileListPageCounter.sln
+
+      - name: Build
+        run: dotnet build FileListPageCounter.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/FileListPageCounter.Tests/FileListPageCounter.Tests.csproj -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Publish a self-contained single-file EXE
+        run: >
+          dotnet publish src/FileListPageCounter.App/FileListPageCounter.App.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          -o publish
+
+      - name: Mark the build as portable
+        run: echo portable > publish/portable.txt
+
+      - name: Upload the EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileListPageCounter-windows-x64
+          path: tools/FileListPageCounter/publish/
+          if-no-files-found: error
