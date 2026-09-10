@@ -12,9 +12,6 @@ public static class Strings
     /// <summary>Author of the tool. Shown in the application window only — never inside a report.</summary>
     public const string Developer = "Ibrahim Masry Ibrahim";
 
-    /// <summary>Prefix for the optional signature the user may put at the foot of a report.</summary>
-    public const string CompiledBy = "إعداد";
-
     public const string ColumnIndex = "م";
     public const string ColumnFileName = "اسم الملف";
     public const string ColumnPages = "عدد الصفحات";

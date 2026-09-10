@@ -176,7 +176,7 @@ public class ExcelReportTests
     }
 
     [Fact]
-    public async Task The_title_reaches_the_sheet_but_no_person_is_named_as_its_preparer()
+    public async Task The_title_reaches_the_sheet_and_nobody_is_described_as_its_preparer()
     {
         using ReportFixture fixture = await BuildReportAsync(new ReportOptions { Title = "أرشيف 2026" });
         using var document = SpreadsheetDocument.Open(fixture.Path, false);
@@ -186,12 +186,30 @@ public class ExcelReportTests
         Assert.Equal("أرشيف 2026", CellText(RowAt(data, 1).Elements<Cell>().First()));
         Assert.Equal("أرشيف 2026", document.PackageProperties.Title);
 
-        // Nobody signed this sheet — it was produced from a folder listing.
+        // A name may sit under the table, but no wording anywhere says what that name is.
         string allText = string.Join("\n", data.Descendants<Cell>().Select(CellText));
-        Assert.DoesNotContain("Ibrahim", allText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("إعداد", allText, StringComparison.Ordinal);
+
+        foreach (string forbidden in new[] { "إعداد", "مطور", "المبرمج", "Developer", "Created by", "Prepared by" })
+        {
+            Assert.DoesNotContain(forbidden, allText, StringComparison.OrdinalIgnoreCase);
+        }
 
         Assert.Equal("FILE LIST & PAGE COUNTER", document.PackageProperties.Creator);
+    }
+
+    [Fact]
+    public async Task The_name_under_the_table_stands_on_its_own()
+    {
+        using ReportFixture fixture = await BuildReportAsync(
+            new ReportOptions { UserName = "IBRAHIM MASRY IBRAHIM" });
+
+        using var document = SpreadsheetDocument.Open(fixture.Path, false);
+        SheetData data = document.WorkbookPart!.WorksheetParts.Single().Worksheet.Elements<SheetData>().Single();
+
+        Cell signature = Assert.Single(
+            data.Descendants<Cell>().Where(c => CellText(c).Contains("IBRAHIM", StringComparison.Ordinal)));
+
+        Assert.Equal("IBRAHIM MASRY IBRAHIM", CellText(signature));
     }
 
     [Fact]

@@ -5,40 +5,104 @@ using System.Windows.Controls;   // PrintDialog lives here, not in System.Window
 using System.Windows.Documents;
 using System.Windows.Input;
 using FileListPageCounter.App.Printing;
+using FileListPageCounter.Core.Models;
 
 namespace FileListPageCounter.App;
 
 /// <summary>
-/// Shows the very pages that will be printed, and prints them. The document handed in here is
-/// the same one the live preview draws, so there is no gap between what was reviewed and what
-/// comes out of the printer.
+/// Shows the very pages that will be printed, and prints them.
+///
+/// The window draws the document itself from the rows and a copy of the report options, which is
+/// what lets the switches along the top take effect immediately: tick one off and the pages below
+/// are redrawn without it, so what is reviewed is always what comes out of the tray.
+///
+/// The options are a copy until the window closes; whatever state they are in then is handed back
+/// to the caller, so a choice made here also carries over to the main preview and to Word/Excel.
 ///
 /// Printing goes straight to the chosen printer with the settings on this panel; the driver's
 /// own properties dialog is one button away for anything the panel does not cover.
 /// </summary>
 public partial class PrintPreviewWindow : Window
 {
-    private readonly FixedDocument _document;
-    private readonly string _title;
-    private readonly int _pageCount;
+    private readonly IReadOnlyList<ReportRow> _rows;
+
+    private FixedDocument _document = new();
+    private int _pageCount;
+    private bool _loaded;
 
     private PrintTicket _ticket = new();
 
-    public PrintPreviewWindow(FixedDocument document, string title)
+    /// <summary>The options as the user left them — the caller adopts these when the window closes.</summary>
+    public ReportOptions Options { get; }
+
+    public PrintPreviewWindow(IReadOnlyList<ReportRow> rows, ReportOptions options)
     {
-        _document = document;
-        _title = title;
-        _pageCount = document.Pages.Count;
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(options);
+
+        _rows = rows;
+        Options = options.Clone();
 
         InitializeComponent();
 
-        Viewer.Document = document;
+        ShowTitleBox.IsChecked = Options.ShowTitle;
+        ShowDateBox.IsChecked = Options.ShowDateLine;
+        ShowTotalsBox.IsChecked = Options.ShowTotalsBand;
+        ShowRunningHeaderBox.IsChecked = Options.ShowRunningHeader;
+        ShowSummaryBox.IsChecked = Options.ShowSummary;
+        ShowPageNumbersBox.IsChecked = Options.IncludePageNumbers;
+        ShowNameBox.IsChecked = Options.ShowUserName;
+
+        // A name that was never typed cannot be shown, so the switch says so rather than
+        // silently doing nothing when it is ticked.
+        ShowNameBox.IsEnabled = Options.UserName.Length > 0;
+
+        _loaded = true;
+
+        RenderDocument(resetRange: true);
+        LoadPrinters();
+    }
+
+    // ------------------------------------------------------------- rendering
+
+    /// <summary>
+    /// Redraws every page from the current options. The page range is only reset when the window
+    /// opens; afterwards a range the user typed is kept, clamped to the new page count.
+    /// </summary>
+    private void RenderDocument(bool resetRange)
+    {
+        _document = ReportPageRenderer.Render(_rows, Options);
+        _pageCount = _document.Pages.Count;
+
+        Viewer.Document = _document;
         PageCountText.Text = $"{_pageCount.ToString("N0", CultureInfo.InvariantCulture)} صفحة";
 
-        FromBox.Text = "1";
-        ToBox.Text = _pageCount.ToString(CultureInfo.InvariantCulture);
+        if (resetRange)
+        {
+            FromBox.Text = "1";
+            ToBox.Text = _pageCount.ToString(CultureInfo.InvariantCulture);
+            return;
+        }
 
-        LoadPrinters();
+        FromBox.Text = ReadNumber(FromBox.Text, 1, 1, Math.Max(_pageCount, 1))
+            .ToString(CultureInfo.InvariantCulture);
+        ToBox.Text = ReadNumber(ToBox.Text, _pageCount, 1, Math.Max(_pageCount, 1))
+            .ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void OnSectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+
+        Options.ShowTitle = ShowTitleBox.IsChecked == true;
+        Options.ShowDateLine = ShowDateBox.IsChecked == true;
+        Options.ShowTotalsBand = ShowTotalsBox.IsChecked == true;
+        Options.ShowRunningHeader = ShowRunningHeaderBox.IsChecked == true;
+        Options.ShowSummary = ShowSummaryBox.IsChecked == true;
+        Options.IncludePageNumbers = ShowPageNumbersBox.IsChecked == true;
+        Options.ShowUserName = ShowNameBox.IsChecked == true;
+
+        RenderDocument(resetRange: false);
     }
 
     // ------------------------------------------------------------- printers
@@ -152,7 +216,7 @@ public partial class PrintPreviewWindow : Window
                 return;
             }
 
-            dialog.PrintDocument(paginator, _title);
+            dialog.PrintDocument(paginator, Options.Title);
             Close();
         }
         catch (Exception ex)

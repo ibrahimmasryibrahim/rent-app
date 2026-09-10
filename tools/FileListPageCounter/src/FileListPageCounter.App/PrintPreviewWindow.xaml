@@ -58,6 +58,43 @@
                     </StackPanel>
                 </WrapPanel>
 
+                <!-- What goes on the page. Every switch redraws the preview at once, so the
+                     page below is always the page that will come out of the printer. -->
+                <Border Background="{StaticResource AppBackground}"
+                        BorderBrush="{StaticResource AppBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10,8"
+                        Margin="0,0,0,10">
+                    <StackPanel>
+                        <TextBlock Text="عناصر الصفحة — أزل العلامة لإخفاء العنصر"
+                                   Style="{StaticResource LabelStyle}" />
+                        <WrapPanel Orientation="Horizontal">
+                            <CheckBox x:Name="ShowTitleBox" Content="العنوان"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowDateBox" Content="تاريخ الإنشاء"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowTotalsBox" Content="ما تمت معالجته (الإحصائيات أعلى الصفحة)"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowRunningHeaderBox" Content="ترويسة أعلى كل صفحة"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowSummaryBox" Content="الملخص في نهاية التقرير"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowPageNumbersBox" Content="أرقام الصفحات"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                            <CheckBox x:Name="ShowNameBox" Content="الاسم أسفل الصفحة"
+                                      Margin="0,4,18,0" FontSize="13"
+                                      Click="OnSectionChanged" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <StackPanel Orientation="Horizontal">
                     <Button Style="{StaticResource ExportButton}"
                             Background="#374B5D"

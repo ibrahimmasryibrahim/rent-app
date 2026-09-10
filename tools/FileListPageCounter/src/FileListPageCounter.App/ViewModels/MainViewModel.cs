@@ -91,8 +91,19 @@ public sealed class MainViewModel : ObservableObject
     private int _fontSize = ReportOptions.DefaultFontSize;
     private int _columnBlocks = 1;
     private int _rowsPerPage;
-    private string _userName = string.Empty;
-    private bool _showUserName;
+
+    // The name goes at the foot of the page by default; it is a switch, not a chore to set up.
+    private string _userName = ReportOptions.DefaultUserName;
+    private bool _showUserName = true;
+
+    // Which blocks of the page are printed. All on to begin with; the print window turns them
+    // off one by one against a live preview.
+    private bool _showTitle = true;
+    private bool _showDateLine = true;
+    private bool _showTotalsBand = true;
+    private bool _showRunningHeader = true;
+    private bool _showSummary = true;
+    private bool _includePageNumbers = true;
 
     private string _sourceDescription = "لم يتم اختيار مصدر بعد";
     private string _statusText = "جاهز";
@@ -424,6 +435,46 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    // ---- page sections ----------------------------------------------------
+    // Each of these is a checkbox in the print window. They live here rather than there so the
+    // main preview and the Word and Excel files agree with what was chosen for the printer.
+
+    public bool ShowTitle
+    {
+        get => _showTitle;
+        set { if (SetProperty(ref _showTitle, value)) SchedulePreview(); }
+    }
+
+    public bool ShowDateLine
+    {
+        get => _showDateLine;
+        set { if (SetProperty(ref _showDateLine, value)) SchedulePreview(); }
+    }
+
+    public bool ShowTotalsBand
+    {
+        get => _showTotalsBand;
+        set { if (SetProperty(ref _showTotalsBand, value)) SchedulePreview(); }
+    }
+
+    public bool ShowRunningHeader
+    {
+        get => _showRunningHeader;
+        set { if (SetProperty(ref _showRunningHeader, value)) SchedulePreview(); }
+    }
+
+    public bool ShowSummary
+    {
+        get => _showSummary;
+        set { if (SetProperty(ref _showSummary, value)) SchedulePreview(); }
+    }
+
+    public bool IncludePageNumbers
+    {
+        get => _includePageNumbers;
+        set { if (SetProperty(ref _includePageNumbers, value)) SchedulePreview(); }
+    }
+
     private ReportOptions BuildReportOptions() => new()
     {
         Title = ReportTitle,
@@ -431,8 +482,26 @@ public sealed class MainViewModel : ObservableObject
         ColumnBlocks = ColumnBlocks,
         RowsPerPage = RowsPerPage,
         UserName = UserName,
-        ShowUserName = ShowUserName
+        ShowUserName = ShowUserName,
+        ShowTitle = ShowTitle,
+        ShowDateLine = ShowDateLine,
+        ShowTotalsBand = ShowTotalsBand,
+        ShowRunningHeader = ShowRunningHeader,
+        ShowSummary = ShowSummary,
+        IncludePageNumbers = IncludePageNumbers
     };
+
+    /// <summary>Takes back the section switches the user changed in the print window.</summary>
+    private void AdoptSections(ReportOptions options)
+    {
+        ShowTitle = options.ShowTitle;
+        ShowDateLine = options.ShowDateLine;
+        ShowTotalsBand = options.ShowTotalsBand;
+        ShowRunningHeader = options.ShowRunningHeader;
+        ShowSummary = options.ShowSummary;
+        IncludePageNumbers = options.IncludePageNumbers;
+        ShowUserName = options.ShowUserName;
+    }
 
     private RowsPerPageOption OptionFor(int rows) =>
         RowsPerPageOptions.FirstOrDefault(o => !o.IsCustom && o.Rows == rows)
@@ -758,10 +827,11 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            ReportOptions options = BuildReportOptions();
-            FixedDocument document = ReportPageRenderer.Render(Rows.ToArray(), options);
+            // The window renders the pages itself, so its switches can redraw them as they are
+            // ticked; whatever the user settles on comes back and becomes the app's own setting.
+            ReportOptions chosen = _dialogs.ShowPrintPreview(Rows.ToArray(), BuildReportOptions());
 
-            _dialogs.ShowPrintPreview(document, options.Title);
+            AdoptSections(chosen);
             StatusText = "تمت معاينة الطباعة";
         }
         catch (Exception ex)

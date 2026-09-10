@@ -103,25 +103,37 @@ public static class ExcelReportBuilder
     {
         var sheetData = new SheetData();
 
-        // ---- title block --------------------------------------------------
-        sheetData.AppendChild(TallRow(TitleRow, 34D, TextCell("A", TitleRow, options.Title, StyleTitle)));
+        // Each block above the table is optional, exactly as it is in the Word report and in the
+        // print preview; the row numbers stay fixed so the table always starts in the same place.
 
-        // Gregorian, invariant digits: the ar-SA culture would switch this to the Hijri calendar.
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd  HH:mm", CultureInfo.InvariantCulture);
-        sheetData.AppendChild(SingleCellRow(MetaRow, $"تاريخ الإنشاء: {stamp}", StyleMeta));
+        // ---- title block --------------------------------------------------
+        if (options.ShowTitle)
+        {
+            sheetData.AppendChild(TallRow(TitleRow, 34D, TextCell("A", TitleRow, options.Title, StyleTitle)));
+        }
+
+        if (options.ShowDateLine)
+        {
+            // Gregorian, invariant digits: the ar-SA culture would switch this to the Hijri calendar.
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd  HH:mm", CultureInfo.InvariantCulture);
+            sheetData.AppendChild(SingleCellRow(MetaRow, $"تاريخ الإنشاء: {stamp}", StyleMeta));
+        }
 
         // ---- headline figures ---------------------------------------------
-        var labels = new Row { RowIndex = FigureLabelRow };
-        labels.AppendChild(TextCell("A", FigureLabelRow, Strings.TotalFiles, StyleFigureLabel));
-        labels.AppendChild(TextCell("B", FigureLabelRow, Strings.TotalPages, StyleFigureLabel));
-        labels.AppendChild(TextCell("C", FigureLabelRow, Strings.UnknownFiles, StyleFigureLabel));
-        sheetData.AppendChild(labels);
+        if (options.ShowTotalsBand)
+        {
+            var labels = new Row { RowIndex = FigureLabelRow };
+            labels.AppendChild(TextCell("A", FigureLabelRow, Strings.TotalFiles, StyleFigureLabel));
+            labels.AppendChild(TextCell("B", FigureLabelRow, Strings.TotalPages, StyleFigureLabel));
+            labels.AppendChild(TextCell("C", FigureLabelRow, Strings.UnknownFiles, StyleFigureLabel));
+            sheetData.AppendChild(labels);
 
-        var figures = new Row { RowIndex = FigureValueRow, Height = 26D, CustomHeight = true };
-        figures.AppendChild(NumberCell("A", FigureValueRow, totals.Files, StyleFigureValue));
-        figures.AppendChild(NumberCell("B", FigureValueRow, totals.Pages, StyleFigureValue));
-        figures.AppendChild(NumberCell("C", FigureValueRow, totals.Unknown, StyleFigureValue));
-        sheetData.AppendChild(figures);
+            var figures = new Row { RowIndex = FigureValueRow, Height = 26D, CustomHeight = true };
+            figures.AppendChild(NumberCell("A", FigureValueRow, totals.Files, StyleFigureValue));
+            figures.AppendChild(NumberCell("B", FigureValueRow, totals.Pages, StyleFigureValue));
+            figures.AppendChild(NumberCell("C", FigureValueRow, totals.Unknown, StyleFigureValue));
+            sheetData.AppendChild(figures);
+        }
 
         // ---- the data table -------------------------------------------------
         var header = new Row { RowIndex = HeaderRow, Height = 24D, CustomHeight = true };
@@ -153,7 +165,7 @@ public static class ExcelReportBuilder
             banded = !banded;
         }
 
-        if (rows.Count > 0)
+        if (rows.Count > 0 && options.ShowSummary)
         {
             var footer = new Row { RowIndex = totalsFooterRow, Height = 22D, CustomHeight = true };
             footer.AppendChild(TextCell("A", totalsFooterRow, string.Empty, StyleTotalLabel));
@@ -162,12 +174,10 @@ public static class ExcelReportBuilder
             sheetData.AppendChild(footer);
         }
 
+        // The name on its own, with nothing written in front of it.
         if (options.HasUserSignature)
         {
-            sheetData.AppendChild(SingleCellRow(
-                signatureRow,
-                $"{Strings.CompiledBy}: {options.UserName}",
-                StyleMeta));
+            sheetData.AppendChild(SingleCellRow(signatureRow, options.UserName, StyleMeta));
         }
 
         // ---- sheet assembly -------------------------------------------------
@@ -209,16 +219,28 @@ public static class ExcelReportBuilder
         }
 
         var mergeCells = new MergeCells();
-        mergeCells.AppendChild(new MergeCell { Reference = $"A{TitleRow}:C{TitleRow}" });
-        mergeCells.AppendChild(new MergeCell { Reference = $"A{MetaRow}:C{MetaRow}" });
+
+        if (options.ShowTitle)
+        {
+            mergeCells.AppendChild(new MergeCell { Reference = $"A{TitleRow}:C{TitleRow}" });
+        }
+
+        if (options.ShowDateLine)
+        {
+            mergeCells.AppendChild(new MergeCell { Reference = $"A{MetaRow}:C{MetaRow}" });
+        }
 
         if (options.HasUserSignature)
         {
             mergeCells.AppendChild(new MergeCell { Reference = $"A{signatureRow}:C{signatureRow}" });
         }
 
-        mergeCells.Count = (uint)mergeCells.ChildElements.Count;
-        worksheet.AppendChild(mergeCells);
+        // An empty <mergeCells> element is invalid, so it is only written when it has something.
+        if (mergeCells.ChildElements.Count > 0)
+        {
+            mergeCells.Count = (uint)mergeCells.ChildElements.Count;
+            worksheet.AppendChild(mergeCells);
+        }
 
         worksheet.AppendChild(new PrintOptions { HorizontalCentered = true });
 
@@ -239,6 +261,14 @@ public static class ExcelReportBuilder
             FitToWidth = 1U,
             FitToHeight = 0U
         });
+
+        // Excel puts the page number in the printed footer rather than in a cell, so that switch
+        // is honoured here. "&P" is Excel's field code for the current page.
+        if (options.IncludePageNumbers)
+        {
+            worksheet.AppendChild(new HeaderFooter(
+                new OddFooter($"&C{Strings.PageOf} &P")));
+        }
 
         return worksheet;
     }

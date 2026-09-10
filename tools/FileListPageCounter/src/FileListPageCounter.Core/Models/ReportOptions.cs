@@ -41,6 +41,25 @@ public sealed class ReportOptions
         set => _columnBlocks = Reporting.ReportLayout.NormalizeBlocks(value);
     }
 
+    // ---- what appears on the page -------------------------------------------------
+    // Every one of these is a switch in the print window, because a list that is going into a
+    // binder often wants nothing on it but the table itself.
+
+    /// <summary>The large heading on the first page.</summary>
+    public bool ShowTitle { get; set; } = true;
+
+    /// <summary>The "تاريخ الإنشاء" line under the heading.</summary>
+    public bool ShowDateLine { get; set; } = true;
+
+    /// <summary>The band of headline figures — how much was processed.</summary>
+    public bool ShowTotalsBand { get; set; } = true;
+
+    /// <summary>The quiet running title along the top of every page.</summary>
+    public bool ShowRunningHeader { get; set; } = true;
+
+    /// <summary>The closing summary block after the table.</summary>
+    public bool ShowSummary { get; set; } = true;
+
     /// <summary>Adds a "صفحة X" footer for printing.</summary>
     public bool IncludePageNumbers { get; set; } = true;
 
@@ -60,12 +79,14 @@ public sealed class ReportOptions
         set => _rowsPerPage = value <= 0 ? 0 : Math.Min(value, 500);
     }
 
-    private string _userName = string.Empty;
+    /// <summary>The name printed at the foot of the page unless the user changes or hides it.</summary>
+    public const string DefaultUserName = "IBRAHIM MASRY IBRAHIM";
+
+    private string _userName = DefaultUserName;
 
     /// <summary>
-    /// The name of the person compiling the list, printed small at the foot of every page when
-    /// <see cref="ShowUserName"/> is on. Empty by default: a report is unsigned unless its user
-    /// chooses to sign it.
+    /// The name printed small at the foot of every page. It is printed on its own — no label,
+    /// no role, no "prepared by" — because the name is the whole of what is wanted there.
     /// </summary>
     public string UserName
     {
@@ -73,11 +94,32 @@ public sealed class ReportOptions
         set => _userName = (value ?? string.Empty).Trim();
     }
 
-    public bool ShowUserName { get; set; }
+    public bool ShowUserName { get; set; } = true;
 
     /// <summary>True only when there is actually a name to print.</summary>
     public bool HasUserSignature => ShowUserName && UserName.Length > 0;
 
     /// <summary>Point size of the signature line — small enough to stay out of the way.</summary>
     public const int SignatureFontSize = 9;
+
+    /// <summary>
+    /// A separate copy, so the print window can try switches on and off against a live preview
+    /// without touching the settings the main window is working from until the user keeps them.
+    /// </summary>
+    public ReportOptions Clone() => new()
+    {
+        FontFamily = FontFamily,
+        FontSize = FontSize,
+        Title = Title,
+        ColumnBlocks = ColumnBlocks,
+        ShowTitle = ShowTitle,
+        ShowDateLine = ShowDateLine,
+        ShowTotalsBand = ShowTotalsBand,
+        ShowRunningHeader = ShowRunningHeader,
+        ShowSummary = ShowSummary,
+        IncludePageNumbers = IncludePageNumbers,
+        RowsPerPage = RowsPerPage,
+        UserName = UserName,
+        ShowUserName = ShowUserName
+    };
 }

@@ -58,10 +58,13 @@ public sealed class WindowsDialogService : IDialogService
         return window.ShowDialog() == true ? window.Value : null;
     }
 
-    public void ShowPrintPreview(System.Windows.Documents.FixedDocument document, string title)
+    public Core.Models.ReportOptions ShowPrintPreview(
+        IReadOnlyList<Core.Models.ReportRow> rows,
+        Core.Models.ReportOptions options)
     {
-        var window = new PrintPreviewWindow(document, title) { Owner = Owner() };
+        var window = new PrintPreviewWindow(rows, options) { Owner = Owner() };
         window.ShowDialog();
+        return window.Options;
     }
 
     public void ShowInfo(string message, string title) =>

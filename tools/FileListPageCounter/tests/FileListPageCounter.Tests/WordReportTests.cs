@@ -320,22 +320,28 @@ public class WordReportTests
     }
 
     [Fact]
-    public async Task No_person_is_named_as_the_preparer_of_the_report()
+    public async Task Nobody_is_described_as_the_preparer_of_the_report()
     {
-        // The report is generated from a folder listing; nobody prepared or signed it, so it
-        // must not carry anyone's name — not in the body, not in the footer, not in the metadata.
+        // A name may sit at the foot of the page, but nothing anywhere says what that name is:
+        // no "prepared by", no role, no reference to whoever wrote the program.
         using ReportFixture fixture = await BuildReportAsync();
         using var document = WordprocessingDocument.Open(fixture.Path, false);
 
-        Assert.DoesNotContain("إعداد", document.MainDocumentPart!.Document!.Body!.InnerText, StringComparison.Ordinal);
-        Assert.DoesNotContain("Ibrahim", document.MainDocumentPart.Document.Body!.InnerText, StringComparison.OrdinalIgnoreCase);
-
+        string body = document.MainDocumentPart!.Document!.Body!.InnerText;
         FooterPart footer = Assert.Single(document.MainDocumentPart.FooterParts);
-        Assert.DoesNotContain("Ibrahim", footer.Footer!.InnerText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("إعداد", footer.Footer.InnerText, StringComparison.Ordinal);
+        string footerText = footer.Footer!.InnerText;
+
+        // The body is the listing and nothing else — the name belongs at the foot of the page.
+        Assert.DoesNotContain("IBRAHIM", body, StringComparison.OrdinalIgnoreCase);
+
+        foreach (string forbidden in new[] { "إعداد", "مطور", "المبرمج", "Developer", "Created by", "Prepared by" })
+        {
+            Assert.DoesNotContain(forbidden, body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(forbidden, footerText, StringComparison.OrdinalIgnoreCase);
+        }
 
         // The footer still does its own job.
-        Assert.Contains("صفحة", footer.Footer.InnerText, StringComparison.Ordinal);
+        Assert.Contains("صفحة", footerText, StringComparison.Ordinal);
 
         // The author field names the tool, not a person.
         Assert.Equal("FILE LIST & PAGE COUNTER", document.PackageProperties.Creator);

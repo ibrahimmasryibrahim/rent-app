@@ -54,27 +54,53 @@ public static class WordReportBuilder
 
         ReportTotals totals = ReportTotals.From(rows);
 
+        // Every block below is optional. A list going into a binder often wants nothing on the
+        // page but the table itself, so each piece is drawn only if it was left switched on.
+
         // ---- title block -------------------------------------------------
-        body.AppendChild(TitleParagraph(options));
-        body.AppendChild(MetaParagraph(options));
-        body.AppendChild(Spacer(options, 200));
+        if (options.ShowTitle)
+        {
+            body.AppendChild(TitleParagraph(options));
+        }
+
+        if (options.ShowDateLine)
+        {
+            body.AppendChild(MetaParagraph(options));
+        }
+
+        if (options.ShowTitle || options.ShowDateLine)
+        {
+            body.AppendChild(Spacer(options, 200));
+        }
 
         // ---- headline figures --------------------------------------------
-        body.AppendChild(FigureBand(totals, options));
-        body.AppendChild(Spacer(options, 240));
+        if (options.ShowTotalsBand)
+        {
+            body.AppendChild(FigureBand(totals, options));
+            body.AppendChild(Spacer(options, 240));
+        }
 
         // ---- the data table ----------------------------------------------
         AppendTables(body, rows, options);
 
         // ---- closing summary ---------------------------------------------
-        body.AppendChild(Spacer(options, 260));
-        body.AppendChild(SectionHeading(Strings.Summary, options));
-        body.AppendChild(SummaryLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
-        body.AppendChild(SummaryLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
-        body.AppendChild(SummaryLine($"{Strings.UnknownFiles}: {Number(totals.Unknown)}", options));
+        if (options.ShowSummary)
+        {
+            body.AppendChild(Spacer(options, 260));
+            body.AppendChild(SectionHeading(Strings.Summary, options));
+            body.AppendChild(SummaryLine($"{Strings.TotalFiles}: {Number(totals.Files)}", options));
+            body.AppendChild(SummaryLine($"{Strings.TotalPages}: {Number(totals.Pages)}", options));
+            body.AppendChild(SummaryLine($"{Strings.UnknownFiles}: {Number(totals.Unknown)}", options));
+        }
 
-        string? headerId = AddHeader(mainPart, options);
-        string? footerId = options.IncludePageNumbers ? AddFooter(mainPart, options) : null;
+        string? headerId = options.ShowRunningHeader ? AddHeader(mainPart, options) : null;
+
+        // The footer carries two independent things: the page number and the name. Either one
+        // on its own is reason enough to write a footer at all.
+        string? footerId = options.IncludePageNumbers || options.HasUserSignature
+            ? AddFooter(mainPart, options)
+            : null;
+
         body.AppendChild(BuildSectionProperties(headerId, footerId));
 
         mainPart.Document.Save();
@@ -522,22 +548,28 @@ public static class WordReportBuilder
             Bold: false,
             Color: ReportTheme.MutedColor);
 
-        var paragraph = BuildParagraph(
-            string.Empty,
-            style,
-            options,
-            JustificationValues.Center,
-            spaceAfter: 0);
+        footerPart.Footer = new Footer();
 
-        paragraph.AppendChild(BuildRun(Strings.PageOf + " ", style, options));
+        if (options.IncludePageNumbers)
+        {
+            var paragraph = BuildParagraph(
+                string.Empty,
+                style,
+                options,
+                JustificationValues.Center,
+                spaceAfter: 0);
 
-        // The run inside the field is the cached result Word shows until it refreshes the field.
-        paragraph.AppendChild(
-            new SimpleField(BuildRun("1", style, options)) { Instruction = " PAGE " });
+            paragraph.AppendChild(BuildRun(Strings.PageOf + " ", style, options));
 
-        footerPart.Footer = new Footer(paragraph);
+            // The run inside the field is the cached result Word shows until it refreshes it.
+            paragraph.AppendChild(
+                new SimpleField(BuildRun("1", style, options)) { Instruction = " PAGE " });
 
-        // The user's own name, only if they asked for it, and small enough to stay out of the way.
+            footerPart.Footer.AppendChild(paragraph);
+        }
+
+        // The name stands on its own at the foot of the page — no label, no role, no wording
+        // in front of it. The name is the whole of what belongs there.
         if (options.HasUserSignature)
         {
             var signatureStyle = new TextStyle(
@@ -546,7 +578,7 @@ public static class WordReportBuilder
                 Color: ReportTheme.MutedColor);
 
             footerPart.Footer.AppendChild(BuildParagraph(
-                $"{Strings.CompiledBy}: {options.UserName}",
+                options.UserName,
                 signatureStyle,
                 options,
                 JustificationValues.Center,

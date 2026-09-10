@@ -113,24 +113,34 @@ public static class ReportPageRenderer
         var body = new StackPanel { Width = UsableWidth, FlowDirection = FlowDirection.RightToLeft };
 
         // Running header: the report title, quiet, with a rule under it.
-        body.Children.Add(new Border
+        if (options.ShowRunningHeader)
         {
-            BorderBrush = BorderBrush,
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(0, 0, 0, 4),
-            Margin = new Thickness(0, 0, 0, 10),
-            Child = Text(options.Title, ReportTheme.Step(options.FontSize, ReportTheme.MetaStep), MutedBrush, TextAlignment.Right)
-        });
+            body.Children.Add(new Border
+            {
+                BorderBrush = BorderBrush,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 10),
+                Child = Text(options.Title, ReportTheme.Step(options.FontSize, ReportTheme.MetaStep), MutedBrush, TextAlignment.Right)
+            });
+        }
 
         if (isFirstPage)
         {
-            body.Children.Add(TitleBlock(options));
-            body.Children.Add(FigureBand(totals, options));
+            if (options.ShowTitle || options.ShowDateLine)
+            {
+                body.Children.Add(TitleBlock(options));
+            }
+
+            if (options.ShowTotalsBand)
+            {
+                body.Children.Add(FigureBand(totals, options));
+            }
         }
 
         body.Children.Add(DataTable(lines, options, blocks));
 
-        if (pageNumber == pageCount)
+        if (pageNumber == pageCount && options.ShowSummary)
         {
             body.Children.Add(SummaryBlock(totals, options));
         }
@@ -147,27 +157,33 @@ public static class ReportPageRenderer
     {
         var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 14), FlowDirection = FlowDirection.RightToLeft };
 
-        panel.Children.Add(new Border
+        if (options.ShowTitle)
         {
-            BorderBrush = AccentSoft,
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(0, 0, 0, 6),
-            Child = Text(
-                options.Title,
-                ReportTheme.Step(options.FontSize, ReportTheme.TitleStep),
-                Accent,
-                TextAlignment.Center,
-                bold: true)
-        });
+            panel.Children.Add(new Border
+            {
+                BorderBrush = AccentSoft,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 0, 0, 6),
+                Child = Text(
+                    options.Title,
+                    ReportTheme.Step(options.FontSize, ReportTheme.TitleStep),
+                    Accent,
+                    TextAlignment.Center,
+                    bold: true)
+            });
+        }
 
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd  HH:mm", CultureInfo.InvariantCulture);
-        TextBlock meta = Text(
-            $"تاريخ الإنشاء: {stamp}",
-            ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
-            MutedBrush,
-            TextAlignment.Center);
-        meta.Margin = new Thickness(0, 6, 0, 0);
-        panel.Children.Add(meta);
+        if (options.ShowDateLine)
+        {
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd  HH:mm", CultureInfo.InvariantCulture);
+            TextBlock meta = Text(
+                $"تاريخ الإنشاء: {stamp}",
+                ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
+                MutedBrush,
+                TextAlignment.Center);
+            meta.Margin = new Thickness(0, options.ShowTitle ? 6 : 0, 0, 0);
+            panel.Children.Add(meta);
+        }
 
         return panel;
     }
@@ -350,20 +366,24 @@ public static class ReportPageRenderer
     {
         var panel = new StackPanel { Width = UsableWidth, FlowDirection = FlowDirection.RightToLeft };
 
-        panel.Children.Add(Text(
-            $"{Strings.PageOf} {pageNumber}",
-            ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
-            MutedBrush,
-            TextAlignment.Center));
+        if (options.IncludePageNumbers)
+        {
+            panel.Children.Add(Text(
+                $"{Strings.PageOf} {pageNumber}",
+                ReportTheme.Step(options.FontSize, ReportTheme.MetaStep),
+                MutedBrush,
+                TextAlignment.Center));
+        }
 
+        // The name alone — nothing in front of it.
         if (options.HasUserSignature)
         {
             TextBlock signature = Text(
-                $"{Strings.CompiledBy}: {options.UserName}",
+                options.UserName,
                 ReportOptions.SignatureFontSize,
                 MutedBrush,
                 TextAlignment.Center);
-            signature.Margin = new Thickness(0, 2, 0, 0);
+            signature.Margin = new Thickness(0, options.IncludePageNumbers ? 2 : 0, 0, 0);
             panel.Children.Add(signature);
         }
 

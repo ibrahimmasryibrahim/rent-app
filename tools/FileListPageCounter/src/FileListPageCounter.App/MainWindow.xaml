@@ -90,7 +90,7 @@
                     <TextBlock Text="اسمك أسفل الصفحات" Style="{StaticResource LabelStyle}" />
                     <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}"
                              Padding="6,4" FontSize="13"
-                             ToolTip="اكتب اسمك ليظهر بحجم صغير أسفل كل صفحة: «إعداد: …»" />
+                             ToolTip="يُطبع الاسم وحده بخط صغير أسفل كل صفحة، بدون أي كلمة قبله" />
                     <CheckBox Content="إظهاره في التقرير والطباعة"
                               IsChecked="{Binding ShowUserName}"
                               Margin="0,6,0,0" />
