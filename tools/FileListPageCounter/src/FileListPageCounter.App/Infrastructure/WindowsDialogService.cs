@@ -52,10 +52,16 @@ public sealed class WindowsDialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
-    public ExportChoice? RequestExportOptions(ExportRequest request)
+    public int? AskForNumber(string title, string prompt, int current, int minimum, int maximum)
     {
-        var window = new ExportOptionsWindow(request) { Owner = Owner() };
-        return window.ShowDialog() == true ? window.Choice : null;
+        var window = new NumberPromptWindow(title, prompt, current, minimum, maximum) { Owner = Owner() };
+        return window.ShowDialog() == true ? window.Value : null;
+    }
+
+    public void ShowPrintPreview(System.Windows.Documents.FixedDocument document, string title)
+    {
+        var window = new PrintPreviewWindow(document, title) { Owner = Owner() };
+        window.ShowDialog();
     }
 
     public void ShowInfo(string message, string title) =>

@@ -1,9 +1,15 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Windows.Documents;
+using System.Windows.Threading;
 using FileListPageCounter.App.Infrastructure;
+using FileListPageCounter.App.Printing;
 using FileListPageCounter.Core.Common;
 using FileListPageCounter.Core.Diagnostics;
 using FileListPageCounter.Core.Models;
@@ -27,25 +33,52 @@ public sealed class SortOptionItem
     public override string ToString() => Label;
 }
 
+/// <summary>One entry of the rows-per-page list: a number, or "تلقائي", or "عدد مخصص".</summary>
+public sealed class RowsPerPageOption
+{
+    public RowsPerPageOption(int rows, string label, bool isCustom = false)
+    {
+        Rows = rows;
+        Label = label;
+        IsCustom = isCustom;
+    }
+
+    /// <summary>Zero means "as many as fit".</summary>
+    public int Rows { get; }
+
+    public string Label { get; }
+
+    public bool IsCustom { get; }
+
+    public override string ToString() => Label;
+}
+
 /// <summary>
-/// Drives the main window. Scan options live here in memory only — nothing is written to disk,
-/// so the tool leaves no configuration file anywhere and starts from the same sane defaults
-/// every time. Everything that shapes a report is asked for in the export dialog instead.
+/// Drives the main window.
+///
+/// The rows shown in the table are a working copy: they start as a projection of what was read
+/// off the disk, and from that moment they belong to the user. Editing them can no more reach a
+/// source file than editing a printout could — the report writers only ever see these rows.
+///
+/// Nothing is written anywhere until the user asks for it by name: no settings file, no report,
+/// no temporary file. Closing the window discards the working copy and leaves the disk as it was.
 /// </summary>
 public sealed class MainViewModel : ObservableObject
 {
+    /// <summary>Drawing every page of a huge list would stall the window; the preview shows the start.</summary>
+    private const int PreviewPageLimit = 25;
+
     private readonly IDialogService _dialogs;
     private readonly ScanService _scanService = new();
+    private readonly DispatcherTimer _previewDebounce;
 
-    /// <summary>Everything the last scan found, unfiltered — lets option changes re-apply instantly.</summary>
-    private IReadOnlyList<FileEntry> _rawEntries = Array.Empty<FileEntry>();
-
+    private IReadOnlyList<FileEntry> _scanned = Array.Empty<FileEntry>();
     private string? _sourceFolder;
     private IReadOnlyList<string>? _selectedFiles;
     private CancellationTokenSource? _cancellation;
     private ProcessingLog? _lastLog;
 
-    // Scan options, remembered for this session only.
+    // Scan options, held for this session only.
     private bool _includeSubdirectories = true;
     private bool _ignoreUnsupportedFiles = true;
     private bool _countTiffFrames = true;
@@ -53,30 +86,53 @@ public sealed class MainViewModel : ObservableObject
     private bool _useFolderNameAsTitle = true;
     private SortMode _sortMode = SortMode.ByFileName;
 
-    // Export choices, carried from one export to the next within the session.
+    // Report options, all of which drive the live preview.
+    private string _reportTitle = Strings.ReportTitle;
     private int _fontSize = ReportOptions.DefaultFontSize;
     private int _columnBlocks = 1;
+    private int _rowsPerPage;
+    private string _userName = string.Empty;
+    private bool _showUserName;
 
-    private IReadOnlyList<FileEntry> _entries = Array.Empty<FileEntry>();
     private string _sourceDescription = "لم يتم اختيار مصدر بعد";
     private string _statusText = "جاهز";
     private string _progressText = string.Empty;
-    private string _reportTitle = Strings.ReportTitle;
     private double _progressValue;
     private bool _isBusy;
-    private int _totalFiles;
-    private int _totalPages;
-    private int _unknownCount;
     private int _logEntryCount;
+    private FixedDocument? _previewDocument;
+    private string _previewSummary = string.Empty;
+    private RowsPerPageOption _selectedRowsPerPage;
 
     public MainViewModel(IDialogService dialogs)
     {
         _dialogs = dialogs;
 
+        RowsPerPageOptions = BuildRowsPerPageOptions();
+        _selectedRowsPerPage = RowsPerPageOptions[0];
+
+        Rows.CollectionChanged += OnRowsChanged;
+
+        _previewDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _previewDebounce.Tick += (_, _) =>
+        {
+            _previewDebounce.Stop();
+            RefreshPreview();
+        };
+
         SelectFolderCommand = new AsyncRelayCommand(SelectFolderAsync, () => !IsBusy);
         SelectFilesCommand = new AsyncRelayCommand(SelectFilesAsync, () => !IsBusy);
-        CreateWordCommand = new RelayCommand(CreateWord, CanExport);
-        CreateExcelCommand = new RelayCommand(CreateExcel, CanExport);
+
+        SaveWordCommand = new RelayCommand(SaveWord, CanProduce);
+        SaveExcelCommand = new RelayCommand(SaveExcel, CanProduce);
+        PrintCommand = new RelayCommand(Print, CanProduce);
+
+        AddRowCommand = new RelayCommand(AddRow, () => !IsBusy);
+        DeleteRowsCommand = new RelayCommand(DeleteRows, () => !IsBusy && SelectedRows.Count > 0);
+        MoveUpCommand = new RelayCommand(MoveUp, () => !IsBusy && SelectedRows.Count > 0);
+        MoveDownCommand = new RelayCommand(MoveDown, () => !IsBusy && SelectedRows.Count > 0);
+        RenumberCommand = new RelayCommand(Renumber, () => !IsBusy && Rows.Count > 0);
+
         ClearCommand = new RelayCommand(Clear, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         SaveLogCommand = new RelayCommand(SaveLog, () => HasLogEntries);
@@ -88,9 +144,21 @@ public sealed class MainViewModel : ObservableObject
 
     public AsyncRelayCommand SelectFilesCommand { get; }
 
-    public RelayCommand CreateWordCommand { get; }
+    public RelayCommand SaveWordCommand { get; }
 
-    public RelayCommand CreateExcelCommand { get; }
+    public RelayCommand SaveExcelCommand { get; }
+
+    public RelayCommand PrintCommand { get; }
+
+    public RelayCommand AddRowCommand { get; }
+
+    public RelayCommand DeleteRowsCommand { get; }
+
+    public RelayCommand MoveUpCommand { get; }
+
+    public RelayCommand MoveDownCommand { get; }
+
+    public RelayCommand RenumberCommand { get; }
 
     public RelayCommand ClearCommand { get; }
 
@@ -98,36 +166,80 @@ public sealed class MainViewModel : ObservableObject
 
     public RelayCommand SaveLogCommand { get; }
 
-    private bool CanExport() => !IsBusy && Entries.Count > 0;
+    private bool CanProduce() => !IsBusy && Rows.Count > 0;
+
+    // ------------------------------------------------------------- the rows
+
+    /// <summary>The working copy: everything the user sees, edits, reorders and prints.</summary>
+    public ObservableCollection<ReportRow> Rows { get; } = new();
+
+    /// <summary>Kept in step with the grid by the window, because DataGrid.SelectedItems is not bindable.</summary>
+    public IList<ReportRow> SelectedRows { get; } = new List<ReportRow>();
+
+    public void OnSelectionChanged(IEnumerable<ReportRow> selection)
+    {
+        SelectedRows.Clear();
+        foreach (ReportRow row in selection) SelectedRows.Add(row);
+
+        DeleteRowsCommand.RaiseCanExecuteChanged();
+        MoveUpCommand.RaiseCanExecuteChanged();
+        MoveDownCommand.RaiseCanExecuteChanged();
+    }
+
+    private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+        {
+            foreach (ReportRow row in e.OldItems.OfType<ReportRow>())
+            {
+                row.PropertyChanged -= OnRowEdited;
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (ReportRow row in e.NewItems.OfType<ReportRow>())
+            {
+                row.PropertyChanged += OnRowEdited;
+            }
+        }
+
+        OnTableChanged();
+    }
+
+    private void OnRowEdited(object? sender, PropertyChangedEventArgs e) => OnTableChanged();
+
+    /// <summary>Anything that changes the table changes the totals and the preview with it.</summary>
+    private void OnTableChanged()
+    {
+        OnPropertyChanged(nameof(TotalFiles));
+        OnPropertyChanged(nameof(TotalPages));
+        OnPropertyChanged(nameof(UnknownCount));
+        OnPropertyChanged(nameof(ExportHint));
+
+        SaveWordCommand.RaiseCanExecuteChanged();
+        SaveExcelCommand.RaiseCanExecuteChanged();
+        PrintCommand.RaiseCanExecuteChanged();
+        RenumberCommand.RaiseCanExecuteChanged();
+
+        SchedulePreview();
+    }
+
+    // ---------------------------------------------------------------- totals
+
+    private ReportTotals Totals => ReportTotals.From(Rows);
+
+    public int TotalFiles => Rows.Count;
+
+    public long TotalPages => Totals.Pages;
+
+    public int UnknownCount => Totals.Unknown;
+
+    public string ExportHint => Rows.Count == 0
+        ? "اختر مجلدًا أو ملفات أولًا"
+        : $"{Num(Rows.Count)} صفًا • {Num(TotalPages)} صفحة";
 
     // ------------------------------------------------------------ bindables
-
-    public IReadOnlyList<FileEntry> Entries
-    {
-        get => _entries;
-        private set
-        {
-            if (!SetProperty(ref _entries, value)) return;
-
-            CreateWordCommand.RaiseCanExecuteChanged();
-            CreateExcelCommand.RaiseCanExecuteChanged();
-        }
-    }
-
-    /// <summary>Heading printed at the top of the Word and Excel reports.</summary>
-    public string ReportTitle
-    {
-        get => _reportTitle;
-        set => SetProperty(ref _reportTitle, value);
-    }
-
-    /// <summary>The tool's author, shown in the window and stamped into every report.</summary>
-    public static string Developer => Strings.Developer;
-
-    /// <summary>Says what the export buttons will actually produce, next to the buttons themselves.</summary>
-    public string ExportHint => Entries.Count == 0
-        ? "اختر مجلدًا أو ملفات أولًا لتفعيل التصدير"
-        : $"سيتم تصدير {Num(Entries.Count)} ملفًا بإجمالي {Num(TotalPages)} صفحة";
 
     public string SourceDescription
     {
@@ -163,8 +275,14 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsIdle));
             SelectFolderCommand.RaiseCanExecuteChanged();
             SelectFilesCommand.RaiseCanExecuteChanged();
-            CreateWordCommand.RaiseCanExecuteChanged();
-            CreateExcelCommand.RaiseCanExecuteChanged();
+            SaveWordCommand.RaiseCanExecuteChanged();
+            SaveExcelCommand.RaiseCanExecuteChanged();
+            PrintCommand.RaiseCanExecuteChanged();
+            AddRowCommand.RaiseCanExecuteChanged();
+            DeleteRowsCommand.RaiseCanExecuteChanged();
+            MoveUpCommand.RaiseCanExecuteChanged();
+            MoveDownCommand.RaiseCanExecuteChanged();
+            RenumberCommand.RaiseCanExecuteChanged();
             ClearCommand.RaiseCanExecuteChanged();
             CancelCommand.RaiseCanExecuteChanged();
         }
@@ -172,25 +290,6 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsIdle => !IsBusy;
 
-    public int TotalFiles
-    {
-        get => _totalFiles;
-        private set => SetProperty(ref _totalFiles, value);
-    }
-
-    public int TotalPages
-    {
-        get => _totalPages;
-        private set => SetProperty(ref _totalPages, value);
-    }
-
-    public int UnknownCount
-    {
-        get => _unknownCount;
-        private set => SetProperty(ref _unknownCount, value);
-    }
-
-    /// <summary>Notes and failures recorded during the last scan (drives the log button).</summary>
     public int LogEntryCount
     {
         get => _logEntryCount;
@@ -205,95 +304,236 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasLogEntries => LogEntryCount > 0;
 
-    // -------------------------------------------------------------- options
+    public static string Developer => Strings.Developer;
 
-    public bool IncludeSubdirectories
+    // ------------------------------------------------------- report options
+
+    public string ReportTitle
     {
-        get => _includeSubdirectories;
+        get => _reportTitle;
         set
         {
-            if (!SetProperty(ref _includeSubdirectories, value)) return;
-
-            // Only a folder scan is affected, and it needs the disk again.
-            if (_sourceFolder is not null && !IsBusy) _ = RescanAsync();
+            if (SetProperty(ref _reportTitle, value)) SchedulePreview();
         }
     }
 
-    public bool IgnoreUnsupportedFiles
+    public IReadOnlyList<int> FontSizes => ReportOptions.AllowedFontSizes;
+
+    public int FontSize
     {
-        get => _ignoreUnsupportedFiles;
+        get => _fontSize;
         set
         {
-            if (SetProperty(ref _ignoreUnsupportedFiles, value)) ReapplyView();
+            if (SetProperty(ref _fontSize, value)) SchedulePreview();
         }
     }
 
-    public bool CountTiffFrames
+    public IReadOnlyList<int> ColumnBlockChoices { get; } = new[] { 1, 2, 3 };
+
+    public int ColumnBlocks
     {
-        get => _countTiffFrames;
+        get => _columnBlocks;
         set
         {
-            if (!SetProperty(ref _countTiffFrames, value)) return;
-
-            if (HasSource && !IsBusy) _ = RescanAsync();
+            if (SetProperty(ref _columnBlocks, ReportLayout.NormalizeBlocks(value))) SchedulePreview();
         }
     }
 
-    public bool VerifyIntegrity
-    {
-        get => _verifyIntegrity;
-        set => SetProperty(ref _verifyIntegrity, value);
-    }
+    public IReadOnlyList<RowsPerPageOption> RowsPerPageOptions { get; }
 
-    public bool UseFolderNameAsTitle
+    public RowsPerPageOption SelectedRowsPerPage
     {
-        get => _useFolderNameAsTitle;
+        get => _selectedRowsPerPage;
         set
         {
-            if (!SetProperty(ref _useFolderNameAsTitle, value)) return;
+            if (value is null) return;
 
-            ReportTitle = value && _sourceFolder is not null
-                ? FolderTitle(_sourceFolder)
-                : Strings.ReportTitle;
+            if (value.IsCustom)
+            {
+                int? custom = _dialogs.AskForNumber(
+                    "عدد الصفوف في الصفحة",
+                    "اكتب عدد الصفوف التي تريدها في كل صفحة:",
+                    _rowsPerPage > 0 ? _rowsPerPage : 25,
+                    1,
+                    500);
+
+                if (custom is null)
+                {
+                    // Cancelled: leave the list showing whatever was chosen before.
+                    OnPropertyChanged();
+                    return;
+                }
+
+                RowsPerPage = custom.Value;
+                SetProperty(ref _selectedRowsPerPage, OptionFor(custom.Value));
+                return;
+            }
+
+            SetProperty(ref _selectedRowsPerPage, value);
+            RowsPerPage = value.Rows;
         }
     }
 
-    public IReadOnlyList<SortOptionItem> SortOptions { get; } = new[]
+    public int RowsPerPage
     {
-        new SortOptionItem(SortMode.ByFileName, "حسب اسم الملف"),
-        new SortOptionItem(SortMode.FolderOrder, "حسب ترتيب الملفات في المجلد")
+        get => _rowsPerPage;
+        private set
+        {
+            if (SetProperty(ref _rowsPerPage, value)) SchedulePreview();
+        }
+    }
+
+    public string UserName
+    {
+        get => _userName;
+        set
+        {
+            if (SetProperty(ref _userName, value)) SchedulePreview();
+        }
+    }
+
+    public bool ShowUserName
+    {
+        get => _showUserName;
+        set
+        {
+            if (SetProperty(ref _showUserName, value)) SchedulePreview();
+        }
+    }
+
+    private ReportOptions BuildReportOptions() => new()
+    {
+        Title = ReportTitle,
+        FontSize = FontSize,
+        ColumnBlocks = ColumnBlocks,
+        RowsPerPage = RowsPerPage,
+        UserName = UserName,
+        ShowUserName = ShowUserName
     };
 
-    public SortOptionItem SelectedSortOption
-    {
-        get => SortOptions.FirstOrDefault(o => o.Mode == _sortMode) ?? SortOptions[0];
-        set
-        {
-            if (value is null || _sortMode == value.Mode) return;
+    private RowsPerPageOption OptionFor(int rows) =>
+        RowsPerPageOptions.FirstOrDefault(o => !o.IsCustom && o.Rows == rows)
+        ?? new RowsPerPageOption(rows, $"{rows} صفًا");
 
-            _sortMode = value.Mode;
-            OnPropertyChanged();
-            ReapplyView();
+    private IReadOnlyList<RowsPerPageOption> BuildRowsPerPageOptions()
+    {
+        var options = new List<RowsPerPageOption>
+        {
+            new(0, "تلقائي (حسب ارتفاع الصفحة)")
+        };
+
+        options.AddRange(ReportOptions.SuggestedRowsPerPage.Select(n => new RowsPerPageOption(n, $"{n} صفًا")));
+        options.Add(new RowsPerPageOption(0, "عدد مخصص…", isCustom: true));
+
+        return options;
+    }
+
+    // --------------------------------------------------------------- preview
+
+    public FixedDocument? PreviewDocument
+    {
+        get => _previewDocument;
+        private set => SetProperty(ref _previewDocument, value);
+    }
+
+    public string PreviewSummary
+    {
+        get => _previewSummary;
+        private set => SetProperty(ref _previewSummary, value);
+    }
+
+    private void SchedulePreview()
+    {
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void RefreshPreview()
+    {
+        if (Rows.Count == 0)
+        {
+            PreviewDocument = null;
+            PreviewSummary = string.Empty;
+            return;
+        }
+
+        try
+        {
+            ReportOptions options = BuildReportOptions();
+            ReportRow[] snapshot = Rows.ToArray();
+
+            int pages = ReportLayout.EstimatePages(snapshot.Length, options.FontSize, options.ColumnBlocks, options.RowsPerPage);
+
+            PreviewDocument = ReportPageRenderer.Render(snapshot, options, PreviewPageLimit);
+
+            PreviewSummary = pages > PreviewPageLimit
+                ? $"{Num(pages)} صفحة — تُعرض أول {PreviewPageLimit} صفحة"
+                : $"{Num(pages)} صفحة";
+        }
+        catch (Exception ex)
+        {
+            PreviewDocument = null;
+            PreviewSummary = "تعذر رسم المعاينة: " + ex.Message;
         }
     }
 
-    private bool HasSource => _sourceFolder is not null || _selectedFiles is { Count: > 0 };
+    // ------------------------------------------------------------ row edits
 
-    /// <summary>
-    /// The folder's own name, which is what a user means by "name the report after the folder".
-    /// A drive root has no name of its own, so its path stands in for one.
-    /// </summary>
-    private static string FolderTitle(string folder)
+    private void AddRow()
     {
-        try
+        int at = SelectedRows.Count > 0 ? Rows.IndexOf(SelectedRows[^1]) + 1 : Rows.Count;
+        if (at < 0 || at > Rows.Count) at = Rows.Count;
+
+        // A hand-added row has no file behind it; its page count starts undetermined.
+        Rows.Insert(at, new ReportRow(at + 1, string.Empty, null));
+        Renumber();
+    }
+
+    private void DeleteRows()
+    {
+        foreach (ReportRow row in SelectedRows.ToArray())
         {
-            string name = new DirectoryInfo(folder).Name;
-            return string.IsNullOrWhiteSpace(name) ? folder : name;
+            Rows.Remove(row);
         }
-        catch (Exception)
+
+        SelectedRows.Clear();
+        Renumber();
+    }
+
+    private void MoveUp() => Move(-1);
+
+    private void MoveDown() => Move(1);
+
+    private void Move(int direction)
+    {
+        List<int> positions = SelectedRows
+            .Select(Rows.IndexOf)
+            .Where(i => i >= 0)
+            .OrderBy(i => direction < 0 ? i : -i)
+            .ToList();
+
+        if (positions.Count == 0) return;
+
+        foreach (int from in positions)
         {
-            return Strings.ReportTitle;
+            int to = from + direction;
+            if (to < 0 || to >= Rows.Count) return; // the block has hit the end; leave it alone
+
+            Rows.Move(from, to);
         }
+
+        Renumber();
+    }
+
+    /// <summary>Puts the first column back in order after a move, an insert or a delete.</summary>
+    private void Renumber()
+    {
+        for (int i = 0; i < Rows.Count; i++)
+        {
+            Rows[i].Index = i + 1;
+        }
+
+        OnTableChanged();
     }
 
     // --------------------------------------------------------------- actions
@@ -307,7 +547,7 @@ public sealed class MainViewModel : ObservableObject
         _selectedFiles = null;
         SourceDescription = folder;
 
-        if (UseFolderNameAsTitle)
+        if (_useFolderNameAsTitle)
         {
             ReportTitle = FolderTitle(folder);
         }
@@ -322,9 +562,7 @@ public sealed class MainViewModel : ObservableObject
 
         _selectedFiles = files;
         _sourceFolder = null;
-        SourceDescription = files.Count == 1
-            ? files[0]
-            : $"{Num(files.Count)} ملفات محددة";
+        SourceDescription = files.Count == 1 ? files[0] : $"{Num(files.Count)} ملفات محددة";
 
         await RescanAsync().ConfigureAwait(true);
     }
@@ -343,7 +581,6 @@ public sealed class MainViewModel : ObservableObject
         ProgressText = string.Empty;
         ProgressValue = 0;
 
-        // Scan without the "ignore unsupported" filter so toggling it later is instant.
         var options = new ScanOptions
         {
             IncludeSubdirectories = IncludeSubdirectories,
@@ -365,11 +602,11 @@ public sealed class MainViewModel : ObservableObject
                 ? await _scanService.ScanFolderAsync(_sourceFolder, options, progress, token).ConfigureAwait(true)
                 : await _scanService.ScanFilesAsync(_selectedFiles!, options, progress, token).ConfigureAwait(true);
 
-            _rawEntries = result.Entries;
+            _scanned = result.Entries;
             _lastLog = result.Log;
             LogEntryCount = result.Log.Count;
 
-            ReapplyView();
+            RebuildRows();
 
             StatusText = $"اكتمل الفحص خلال {result.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} ثانية";
 
@@ -397,76 +634,63 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Re-applies the filter, the sort and the row numbers without reading the disk again.</summary>
-    private void ReapplyView()
+    /// <summary>
+    /// Builds a fresh working copy from the scan. Any hand edits are replaced, which is why this
+    /// only ever runs after a scan or a filter change — never behind the user's back.
+    /// </summary>
+    private void RebuildRows()
     {
-        var options = new ScanOptions
+        var organizeOptions = new ScanOptions
         {
             IgnoreUnsupportedFiles = IgnoreUnsupportedFiles,
             SortMode = _sortMode
         };
 
-        List<FileEntry> view = EntryOrganizer.Organize(_rawEntries, options);
+        List<FileEntry> view = EntryOrganizer.Organize(_scanned, organizeOptions);
 
-        Entries = view;
-        TotalFiles = view.Count;
-        TotalPages = view.Sum(e => e.PageCount ?? 0);
-        UnknownCount = view.Count(e => !e.PageCount.HasValue);
-        OnPropertyChanged(nameof(ExportHint));
+        Rows.CollectionChanged -= OnRowsChanged;
+        foreach (ReportRow row in Rows) row.PropertyChanged -= OnRowEdited;
+
+        Rows.Clear();
+        foreach (FileEntry entry in view)
+        {
+            var row = ReportRow.From(entry);
+            row.PropertyChanged += OnRowEdited;
+            Rows.Add(row);
+        }
+
+        Rows.CollectionChanged += OnRowsChanged;
+        SelectedRows.Clear();
+        OnTableChanged();
     }
 
-    // --------------------------------------------------------------- export
+    // ---------------------------------------------------------------- output
 
-    private void CreateWord() => Export(
+    private void SaveWord() => Save(
         formatName: "Word",
         extension: ".docx",
         filterLabel: "مستند Word",
-        paginated: true,
-        build: static (path, entries, options) => WordReportBuilder.Build(path, entries, options));
+        build: static (path, rows, options) => WordReportBuilder.Build(path, rows, options));
 
-    private void CreateExcel() => Export(
+    private void SaveExcel() => Save(
         formatName: "Excel",
         extension: ".xlsx",
         filterLabel: "مصنّف Excel",
-        paginated: false,
-        build: static (path, entries, options) => ExcelReportBuilder.Build(path, entries, options));
+        build: static (path, rows, options) => ExcelReportBuilder.Build(path, rows, options));
 
-    private void Export(
+    private void Save(
         string formatName,
         string extension,
         string filterLabel,
-        bool paginated,
-        Action<string, IReadOnlyList<FileEntry>, ReportOptions> build)
+        Action<string, IReadOnlyList<ReportRow>, ReportOptions> build)
     {
-        if (Entries.Count == 0) return;
+        if (Rows.Count == 0) return;
 
-        // Ask first, save second: the user shapes the document before choosing where it lands.
-        ExportChoice? choice = _dialogs.RequestExportOptions(new ExportRequest
-        {
-            FormatName = formatName,
-            Paginated = paginated,
-            EntryCount = Entries.Count,
-            TotalPages = TotalPages,
-            Title = ReportTitle,
-            FontSize = _fontSize,
-            ColumnBlocks = _columnBlocks
-        });
+        ReportOptions options = BuildReportOptions();
 
-        if (choice is null) return;
-
-        _fontSize = choice.FontSize;
-        _columnBlocks = choice.ColumnBlocks;
-        ReportTitle = choice.Title;
-
-        var reportOptions = new ReportOptions
-        {
-            Title = choice.Title,
-            FontSize = choice.FontSize,
-            ColumnBlocks = choice.ColumnBlocks
-        };
-
+        // Nothing is written until the user names a place for it.
         string? target = _dialogs.PickSaveLocation(
-            Strings.SuggestFileName(reportOptions.Title, extension),
+            Strings.SuggestFileName(options.Title, extension),
             extension,
             filterLabel);
 
@@ -484,7 +708,7 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            build(target, Entries, reportOptions);
+            build(target, Rows.ToArray(), options);
         }
         catch (Exception ex)
         {
@@ -494,19 +718,33 @@ public sealed class MainViewModel : ObservableObject
 
         StatusText = "تم إنشاء الملف: " + target;
 
-        if (choice.OpenWhenDone)
+        if (_dialogs.Confirm(
+                $"تم إنشاء ملف {formatName} بنجاح.\n\n" +
+                $"عدد الصفوف: {Num(Rows.Count)}\n" +
+                $"إجمالي الصفحات: {Num(TotalPages)}\n\n" +
+                target + "\n\nهل تريد فتحه الآن؟",
+                "تم الإنشاء"))
         {
             OpenDocument(target);
-            return;
         }
+    }
 
-        _dialogs.ShowInfo(
-            "تم إنشاء الملف بنجاح.\n\n" +
-            $"عدد الملفات: {Num(TotalFiles)}\n" +
-            $"إجمالي الصفحات: {Num(TotalPages)}\n" +
-            $"تعذر تحديد صفحاتها: {Num(UnknownCount)}\n\n" +
-            target,
-            "تم الإنشاء");
+    private void Print()
+    {
+        if (Rows.Count == 0) return;
+
+        try
+        {
+            ReportOptions options = BuildReportOptions();
+            FixedDocument document = ReportPageRenderer.Render(Rows.ToArray(), options);
+
+            _dialogs.ShowPrintPreview(document, options.Title);
+            StatusText = "تمت معاينة الطباعة";
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ShowError("تعذر تجهيز الطباعة:\n\n" + ex.Message, "خطأ");
+        }
     }
 
     private void OpenDocument(string path)
@@ -528,12 +766,95 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             string folder = Path.GetFullPath(_sourceFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            string file = Path.GetFullPath(target);
-            return file.StartsWith(folder, StringComparison.OrdinalIgnoreCase);
+            return Path.GetFullPath(target).StartsWith(folder, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception)
         {
             return false;
+        }
+    }
+
+    // -------------------------------------------------------------- options
+
+    public bool IncludeSubdirectories
+    {
+        get => _includeSubdirectories;
+        set
+        {
+            if (!SetProperty(ref _includeSubdirectories, value)) return;
+
+            if (_sourceFolder is not null && !IsBusy) _ = RescanAsync();
+        }
+    }
+
+    public bool IgnoreUnsupportedFiles
+    {
+        get => _ignoreUnsupportedFiles;
+        set
+        {
+            if (SetProperty(ref _ignoreUnsupportedFiles, value)) RebuildRows();
+        }
+    }
+
+    public bool CountTiffFrames
+    {
+        get => _countTiffFrames;
+        set
+        {
+            if (!SetProperty(ref _countTiffFrames, value)) return;
+
+            if (HasSource && !IsBusy) _ = RescanAsync();
+        }
+    }
+
+    public bool VerifyIntegrity
+    {
+        get => _verifyIntegrity;
+        set => SetProperty(ref _verifyIntegrity, value);
+    }
+
+    public bool UseFolderNameAsTitle
+    {
+        get => _useFolderNameAsTitle;
+        set
+        {
+            if (!SetProperty(ref _useFolderNameAsTitle, value)) return;
+
+            ReportTitle = value && _sourceFolder is not null ? FolderTitle(_sourceFolder) : Strings.ReportTitle;
+        }
+    }
+
+    public IReadOnlyList<SortOptionItem> SortOptions { get; } = new[]
+    {
+        new SortOptionItem(SortMode.ByFileName, "حسب اسم الملف"),
+        new SortOptionItem(SortMode.FolderOrder, "حسب ترتيب الملفات في المجلد")
+    };
+
+    public SortOptionItem SelectedSortOption
+    {
+        get => SortOptions.FirstOrDefault(o => o.Mode == _sortMode) ?? SortOptions[0];
+        set
+        {
+            if (value is null || _sortMode == value.Mode) return;
+
+            _sortMode = value.Mode;
+            OnPropertyChanged();
+            RebuildRows();
+        }
+    }
+
+    private bool HasSource => _sourceFolder is not null || _selectedFiles is { Count: > 0 };
+
+    private static string FolderTitle(string folder)
+    {
+        try
+        {
+            string name = new DirectoryInfo(folder).Name;
+            return string.IsNullOrWhiteSpace(name) ? folder : name;
+        }
+        catch (Exception)
+        {
+            return Strings.ReportTitle;
         }
     }
 
@@ -542,20 +863,17 @@ public sealed class MainViewModel : ObservableObject
         _cancellation?.Cancel();
         _sourceFolder = null;
         _selectedFiles = null;
-        _rawEntries = Array.Empty<FileEntry>();
+        _scanned = Array.Empty<FileEntry>();
         _lastLog = null;
 
-        Entries = Array.Empty<FileEntry>();
-        TotalFiles = 0;
-        TotalPages = 0;
-        UnknownCount = 0;
+        RebuildRows();
+
         LogEntryCount = 0;
         SourceDescription = "لم يتم اختيار مصدر بعد";
         StatusText = "جاهز";
         ProgressText = string.Empty;
         ProgressValue = 0;
         ReportTitle = Strings.ReportTitle;
-        OnPropertyChanged(nameof(ExportHint));
     }
 
     private void Cancel() => _cancellation?.Cancel();
@@ -575,5 +893,5 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private static string Num(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Num(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
 }

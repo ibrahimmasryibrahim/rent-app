@@ -43,7 +43,7 @@ public class ExcelReportTests
         ScanResult result = await new ScanService().ScanFolderAsync(source.Path, new ScanOptions());
 
         string path = output.File("report.xlsx");
-        ExcelReportBuilder.Build(path, result.Entries, options ?? new ReportOptions());
+        ExcelReportBuilder.Build(path, ReportRow.From(result.Entries), options ?? new ReportOptions());
 
         return new ReportFixture { Source = source, Output = output, Path = path, Result = result };
     }
@@ -200,7 +200,7 @@ public class ExcelReportTests
         using var output = new TempFolder();
 
         string path = output.File("empty.xlsx");
-        ExcelReportBuilder.Build(path, Array.Empty<FileEntry>(), new ReportOptions());
+        ExcelReportBuilder.Build(path, Array.Empty<ReportRow>(), new ReportOptions());
 
         using var document = SpreadsheetDocument.Open(path, false);
         SheetData data = document.WorkbookPart!.WorksheetParts.Single().Worksheet.Elements<SheetData>().Single();
@@ -224,7 +224,7 @@ public class ExcelReportTests
 
         using var output = new TempFolder();
         string path = output.File("large.xlsx");
-        ExcelReportBuilder.Build(path, result.Entries, new ReportOptions());
+        ExcelReportBuilder.Build(path, ReportRow.From(result.Entries), new ReportOptions());
 
         using var document = SpreadsheetDocument.Open(path, false);
         SheetData data = document.WorkbookPart!.WorksheetParts.Single().Worksheet.Elements<SheetData>().Single();

@@ -1,0 +1,42 @@
+<Window x:Class="FileListPageCounter.App.PrintPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="معاينة الطباعة"
+        Height="820" Width="900"
+        WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft"
+        FontFamily="Segoe UI, Tahoma, Arial"
+        Icon="Assets/app.ico"
+        Background="{StaticResource AppBackground}">
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top"
+                Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource AppBorder}"
+                BorderThickness="0,0,0,1"
+                Padding="14,10">
+            <StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource ExportButton}"
+                        Background="{StaticResource WordBlue}"
+                        Tag="{StaticResource WordBlueHover}"
+                        MinWidth="160"
+                        Click="OnPrint">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🖨" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <TextBlock Text="طباعة" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <Button Content="إغلاق" MinWidth="110" Click="OnClose" IsCancel="True" />
+
+                <TextBlock x:Name="PageCountText"
+                           VerticalAlignment="Center"
+                           Margin="14,0,0,0"
+                           FontSize="13"
+                           Foreground="{StaticResource AppMuted}" />
+            </StackPanel>
+        </Border>
+
+        <DocumentViewer x:Name="Viewer" Background="#E9EDF2" />
+    </DockPanel>
+</Window>

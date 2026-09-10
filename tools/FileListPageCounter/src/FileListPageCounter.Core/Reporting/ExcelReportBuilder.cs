@@ -39,10 +39,10 @@ public static class ExcelReportBuilder
     private const uint StyleFigureLabel = 10;
     private const uint StyleFigureValue = 11;
 
-    public static void Build(string outputPath, IReadOnlyList<FileEntry> entries, ReportOptions options)
+    public static void Build(string outputPath, IReadOnlyList<ReportRow> rows, ReportOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(options);
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
@@ -51,10 +51,11 @@ public static class ExcelReportBuilder
             Directory.CreateDirectory(directory);
         }
 
-        ReportTotals totals = ReportTotals.From(entries);
+        ReportTotals totals = ReportTotals.From(rows);
 
-        uint lastDataRow = entries.Count > 0 ? FirstDataRow + (uint)entries.Count - 1 : HeaderRow;
+        uint lastDataRow = rows.Count > 0 ? FirstDataRow + (uint)rows.Count - 1 : HeaderRow;
         uint totalsFooterRow = lastDataRow + 1;
+        uint signatureRow = totalsFooterRow + 2;
 
         using SpreadsheetDocument document =
             SpreadsheetDocument.Create(outputPath, SpreadsheetDocumentType.Workbook);
@@ -69,7 +70,7 @@ public static class ExcelReportBuilder
         stylesPart.Stylesheet.Save();
 
         WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
-        worksheetPart.Worksheet = BuildWorksheet(entries, options, totals, lastDataRow, totalsFooterRow);
+        worksheetPart.Worksheet = BuildWorksheet(rows, options, totals, lastDataRow, totalsFooterRow, signatureRow);
         worksheetPart.Worksheet.Save();
 
         workbookPart.Workbook.AppendChild(new Sheets(new Sheet
@@ -93,11 +94,12 @@ public static class ExcelReportBuilder
     // ------------------------------------------------------------- worksheet
 
     private static Worksheet BuildWorksheet(
-        IReadOnlyList<FileEntry> entries,
+        IReadOnlyList<ReportRow> rows,
         ReportOptions options,
         ReportTotals totals,
         uint lastDataRow,
-        uint totalsFooterRow)
+        uint totalsFooterRow,
+        uint signatureRow)
     {
         var sheetData = new SheetData();
 
@@ -131,14 +133,14 @@ public static class ExcelReportBuilder
         uint rowIndex = FirstDataRow;
         bool banded = false;
 
-        foreach (FileEntry entry in entries)
+        foreach (ReportRow entry in rows)
         {
             uint nameStyle = banded ? StyleNameBanded : StyleName;
             uint numberStyle = banded ? StyleNumberBanded : StyleNumber;
 
             var row = new Row { RowIndex = rowIndex };
             row.AppendChild(NumberCell("A", rowIndex, entry.Index, numberStyle));
-            row.AppendChild(TextCell("B", rowIndex, entry.DisplayName, nameStyle));
+            row.AppendChild(TextCell("B", rowIndex, entry.Name, nameStyle));
 
             // A real number when we know it, the words "غير معروف" when we do not — so Excel can
             // still sum the column without a damaged file poisoning the total.
@@ -151,13 +153,21 @@ public static class ExcelReportBuilder
             banded = !banded;
         }
 
-        if (entries.Count > 0)
+        if (rows.Count > 0)
         {
             var footer = new Row { RowIndex = totalsFooterRow, Height = 22D, CustomHeight = true };
             footer.AppendChild(TextCell("A", totalsFooterRow, string.Empty, StyleTotalLabel));
             footer.AppendChild(TextCell("B", totalsFooterRow, Strings.GrandTotal, StyleTotalLabel));
             footer.AppendChild(NumberCell("C", totalsFooterRow, totals.Pages, StyleTotalValue));
             sheetData.AppendChild(footer);
+        }
+
+        if (options.HasUserSignature)
+        {
+            sheetData.AppendChild(SingleCellRow(
+                signatureRow,
+                $"{Strings.CompiledBy}: {options.UserName}",
+                StyleMeta));
         }
 
         // ---- sheet assembly -------------------------------------------------
@@ -193,7 +203,7 @@ public static class ExcelReportBuilder
 
         worksheet.AppendChild(sheetData);
 
-        if (entries.Count > 0)
+        if (rows.Count > 0)
         {
             worksheet.AppendChild(new AutoFilter { Reference = $"A{HeaderRow}:C{lastDataRow}" });
         }
@@ -201,6 +211,11 @@ public static class ExcelReportBuilder
         var mergeCells = new MergeCells();
         mergeCells.AppendChild(new MergeCell { Reference = $"A{TitleRow}:C{TitleRow}" });
         mergeCells.AppendChild(new MergeCell { Reference = $"A{MetaRow}:C{MetaRow}" });
+
+        if (options.HasUserSignature)
+        {
+            mergeCells.AppendChild(new MergeCell { Reference = $"A{signatureRow}:C{signatureRow}" });
+        }
 
         mergeCells.Count = (uint)mergeCells.ChildElements.Count;
         worksheet.AppendChild(mergeCells);

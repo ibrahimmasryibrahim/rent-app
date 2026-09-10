@@ -43,4 +43,41 @@ public sealed class ReportOptions
 
     /// <summary>Adds a "صفحة X" footer for printing.</summary>
     public bool IncludePageNumbers { get; set; } = true;
+
+    /// <summary>Row counts offered by the preview, alongside "تلقائي" and a free number.</summary>
+    public static readonly int[] SuggestedRowsPerPage = { 10, 15, 20, 25, 30, 40, 50, 75, 100 };
+
+    private int _rowsPerPage;
+
+    /// <summary>
+    /// How many table rows go on each printed page. Zero means "as many as fit", which is what
+    /// Word would do on its own; any other value paginates the report to exactly that many rows
+    /// so the printed pages match the preview line for line.
+    /// </summary>
+    public int RowsPerPage
+    {
+        get => _rowsPerPage;
+        set => _rowsPerPage = value <= 0 ? 0 : Math.Min(value, 500);
+    }
+
+    private string _userName = string.Empty;
+
+    /// <summary>
+    /// The name of the person compiling the list, printed small at the foot of every page when
+    /// <see cref="ShowUserName"/> is on. Empty by default: a report is unsigned unless its user
+    /// chooses to sign it.
+    /// </summary>
+    public string UserName
+    {
+        get => _userName;
+        set => _userName = (value ?? string.Empty).Trim();
+    }
+
+    public bool ShowUserName { get; set; }
+
+    /// <summary>True only when there is actually a name to print.</summary>
+    public bool HasUserSignature => ShowUserName && UserName.Length > 0;
+
+    /// <summary>Point size of the signature line — small enough to stay out of the way.</summary>
+    public const int SignatureFontSize = 9;
 }

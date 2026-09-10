@@ -29,10 +29,10 @@ public static class WordReportBuilder
     // The headline figures sit in three equal cells.
     private const int FigureColumnWidth = UsableWidthTwips / 3;
 
-    public static void Build(string outputPath, IReadOnlyList<FileEntry> entries, ReportOptions options)
+    public static void Build(string outputPath, IReadOnlyList<ReportRow> rows, ReportOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(options);
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
@@ -52,7 +52,7 @@ public static class WordReportBuilder
         var body = new Body();
         mainPart.Document = new Document(body);
 
-        ReportTotals totals = ReportTotals.From(entries);
+        ReportTotals totals = ReportTotals.From(rows);
 
         // ---- title block -------------------------------------------------
         body.AppendChild(TitleParagraph(options));
@@ -64,7 +64,7 @@ public static class WordReportBuilder
         body.AppendChild(Spacer(options, 240));
 
         // ---- the data table ----------------------------------------------
-        body.AppendChild(BuildTable(entries, options));
+        AppendTables(body, rows, options);
 
         // ---- closing summary ---------------------------------------------
         body.AppendChild(Spacer(options, 260));
@@ -215,7 +215,47 @@ public static class WordReportBuilder
 
     // ----------------------------------------------------------------- table
 
-    private static Table BuildTable(IReadOnlyList<FileEntry> entries, ReportOptions options)
+    /// <summary>
+    /// Emits the table. With a pinned rows-per-page the run is cut into one table per page,
+    /// separated by hard page breaks, so the printed pages match the preview line for line;
+    /// each table repeats the header, so no page is left without one.
+    /// </summary>
+    private static void AppendTables(Body body, IReadOnlyList<ReportRow> rows, ReportOptions options)
+    {
+        int blocks = ReportLayout.NormalizeBlocks(options.ColumnBlocks);
+        IReadOnlyList<ReportRow?[]> arranged = ReportLayout.Arrange(rows, blocks);
+        IReadOnlyList<IReadOnlyList<ReportRow?[]>> pages = ReportLayout.Paginate(
+            arranged,
+            options.RowsPerPage,
+            ReportLayout.FirstPageRows(options.FontSize, options.RowsPerPage));
+
+        for (int page = 0; page < pages.Count; page++)
+        {
+            if (page > 0)
+            {
+                body.AppendChild(PageBreak(options));
+            }
+
+            body.AppendChild(BuildTable(pages[page], options));
+        }
+    }
+
+    private static Paragraph PageBreak(ReportOptions options)
+    {
+        var run = new Run(new Break { Type = BreakValues.Page });
+
+        var paragraph = BuildParagraph(
+            string.Empty,
+            new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor),
+            options,
+            JustificationValues.Right,
+            spaceAfter: 0);
+
+        paragraph.AppendChild(run);
+        return paragraph;
+    }
+
+    private static Table BuildTable(IReadOnlyList<ReportRow?[]> lines, ReportOptions options)
     {
         int blocks = ReportLayout.NormalizeBlocks(options.ColumnBlocks);
         (int indexWidth, int nameWidth, int countWidth) = ReportLayout.BlockColumnWidths(UsableWidthTwips, blocks);
@@ -248,7 +288,7 @@ public static class WordReportBuilder
         table.AppendChild(HeaderRow(options, blocks, indexWidth, nameWidth, countWidth));
 
         bool banded = false;
-        foreach (FileEntry?[] cells in ReportLayout.Arrange(entries, blocks))
+        foreach (ReportRow?[] cells in lines)
         {
             table.AppendChild(DataRow(cells, options, banded, indexWidth, nameWidth, countWidth));
             banded = !banded;
@@ -279,7 +319,7 @@ public static class WordReportBuilder
     }
 
     private static TableRow DataRow(
-        FileEntry?[] cells,
+        ReportRow?[] cells,
         ReportOptions options,
         bool banded,
         int indexWidth,
@@ -296,7 +336,7 @@ public static class WordReportBuilder
         var normal = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.TextColor);
         var muted = new TextStyle(options.FontSize, Bold: false, Color: ReportTheme.MutedColor);
 
-        foreach (FileEntry? entry in cells)
+        foreach (ReportRow? entry in cells)
         {
             if (entry is null)
             {
@@ -316,7 +356,7 @@ public static class WordReportBuilder
                 JustificationValues.Center,
                 fill));
 
-            row.AppendChild(Cell(entry.DisplayName, nameWidth, normal, options, JustificationValues.Right, fill));
+            row.AppendChild(Cell(entry.Name, nameWidth, normal, options, JustificationValues.Right, fill));
 
             // An undetermined count is stated plainly but never shouts: muted, not bold.
             row.AppendChild(Cell(
@@ -496,6 +536,23 @@ public static class WordReportBuilder
             new SimpleField(BuildRun("1", style, options)) { Instruction = " PAGE " });
 
         footerPart.Footer = new Footer(paragraph);
+
+        // The user's own name, only if they asked for it, and small enough to stay out of the way.
+        if (options.HasUserSignature)
+        {
+            var signatureStyle = new TextStyle(
+                Size: ReportOptions.SignatureFontSize,
+                Bold: false,
+                Color: ReportTheme.MutedColor);
+
+            footerPart.Footer.AppendChild(BuildParagraph(
+                $"{Strings.CompiledBy}: {options.UserName}",
+                signatureStyle,
+                options,
+                JustificationValues.Center,
+                spaceAfter: 0));
+        }
+
         footerPart.Footer.Save();
 
         return mainPart.GetIdOfPart(footerPart);

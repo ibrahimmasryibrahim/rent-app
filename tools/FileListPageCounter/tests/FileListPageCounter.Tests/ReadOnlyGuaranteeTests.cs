@@ -78,7 +78,7 @@ public class ReadOnlyGuaranteeTests
 
         // The report itself is written outside the source folder, as the application requires.
         using var output = new TempFolder();
-        WordReportBuilder.Build(Path.Combine(output.Path, "report.docx"), result.Entries, new ReportOptions());
+        WordReportBuilder.Build(Path.Combine(output.Path, "report.docx"), ReportRow.From(result.Entries), new ReportOptions());
 
         IReadOnlyCollection<string> after = IntegrityVerifier.SnapshotFolder(temp.Path, recurse: true);
 

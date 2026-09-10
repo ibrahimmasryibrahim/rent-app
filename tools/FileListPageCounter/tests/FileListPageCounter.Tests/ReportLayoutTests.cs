@@ -10,24 +10,13 @@ namespace FileListPageCounter.Tests;
 /// </summary>
 public class ReportLayoutTests
 {
-    private static IReadOnlyList<FileEntry> Entries(int count)
+    private static IReadOnlyList<ReportRow> Entries(int count)
     {
-        var list = new List<FileEntry>(count);
+        var list = new List<ReportRow>(count);
 
         for (int i = 1; i <= count; i++)
         {
-            var entry = new FileEntry
-            {
-                DiscoveryOrder = i - 1,
-                FullPath = $@"C:\archive\{i}.pdf",
-                FileName = $"{i}.pdf",
-                DisplayName = i.ToString(),
-                Extension = ".pdf"
-            };
-
-            entry.Index = i;
-            entry.PageCount = 1;
-            list.Add(entry);
+            list.Add(new ReportRow(i, i.ToString(), 1, $@"C:\archive\{i}.pdf"));
         }
 
         return list;
@@ -68,23 +57,23 @@ public class ReportLayoutTests
     {
         // Six entries over two blocks: 1,2,3 down the first block and 4,5,6 down the second,
         // so the numbering still reads in order down the page.
-        IReadOnlyList<FileEntry?[]> rows = ReportLayout.Arrange(Entries(6), blocks: 2);
+        IReadOnlyList<ReportRow?[]> rows = ReportLayout.Arrange(Entries(6), blocks: 2);
 
         Assert.Equal(3, rows.Count);
-        Assert.Equal(new[] { "1", "4" }, rows[0].Select(e => e!.DisplayName).ToArray());
-        Assert.Equal(new[] { "2", "5" }, rows[1].Select(e => e!.DisplayName).ToArray());
-        Assert.Equal(new[] { "3", "6" }, rows[2].Select(e => e!.DisplayName).ToArray());
+        Assert.Equal(new[] { "1", "4" }, rows[0].Select(e => e!.Name).ToArray());
+        Assert.Equal(new[] { "2", "5" }, rows[1].Select(e => e!.Name).ToArray());
+        Assert.Equal(new[] { "3", "6" }, rows[2].Select(e => e!.Name).ToArray());
     }
 
     [Fact]
     public void A_list_that_does_not_divide_evenly_leaves_empty_cells_at_the_end()
     {
-        IReadOnlyList<FileEntry?[]> rows = ReportLayout.Arrange(Entries(5), blocks: 2);
+        IReadOnlyList<ReportRow?[]> rows = ReportLayout.Arrange(Entries(5), blocks: 2);
 
         Assert.Equal(3, rows.Count);
-        Assert.Equal("1", rows[0][0]!.DisplayName);
-        Assert.Equal("4", rows[0][1]!.DisplayName);
-        Assert.Equal("3", rows[2][0]!.DisplayName);
+        Assert.Equal("1", rows[0][0]!.Name);
+        Assert.Equal("4", rows[0][1]!.Name);
+        Assert.Equal("3", rows[2][0]!.Name);
         Assert.Null(rows[2][1]);   // the grid stays rectangular
     }
 
@@ -96,7 +85,7 @@ public class ReportLayoutTests
             string[] laid = ReportLayout.Arrange(Entries(97), blocks)
                 .SelectMany(row => row)
                 .Where(e => e is not null)
-                .Select(e => e!.DisplayName)
+                .Select(e => e!.Name)
                 .ToArray();
 
             Assert.Equal(97, laid.Length);

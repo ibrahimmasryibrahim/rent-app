@@ -50,7 +50,7 @@ public class WordReportTests
 
         // The report is deliberately written outside the source folder.
         string path = output.File("report.docx");
-        WordReportBuilder.Build(path, result.Entries, options ?? new ReportOptions());
+        WordReportBuilder.Build(path, ReportRow.From(result.Entries), options ?? new ReportOptions());
 
         return new ReportFixture { Source = source, Output = output, Path = path, Result = result };
     }
@@ -245,7 +245,7 @@ public class WordReportTests
 
             using var output = new TempFolder();
             string path = output.File("summary.docx");
-            WordReportBuilder.Build(path, result.Entries, new ReportOptions());
+            WordReportBuilder.Build(path, ReportRow.From(result.Entries), new ReportOptions());
 
             using var document = WordprocessingDocument.Open(path, false);
             string text = document.MainDocumentPart!.Document!.Body!.InnerText;
@@ -286,7 +286,7 @@ public class WordReportTests
 
         using var output = new TempFolder();
         string path = output.File("large.docx");
-        WordReportBuilder.Build(path, result.Entries, new ReportOptions());
+        WordReportBuilder.Build(path, ReportRow.From(result.Entries), new ReportOptions());
 
         using var document = WordprocessingDocument.Open(path, false);
         Table table = document.MainDocumentPart!.Document!.Body!.Descendants<Table>().Last();

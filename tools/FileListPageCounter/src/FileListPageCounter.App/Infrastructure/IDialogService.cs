@@ -8,8 +8,11 @@ public interface IDialogService
 
     string? PickSaveLocation(string defaultFileName, string extension, string filterLabel);
 
-    /// <summary>Shows the pre-export options window. Returns null when the user cancels.</summary>
-    ExportChoice? RequestExportOptions(ExportRequest request);
+    /// <summary>Asks for a whole number within a range. Null when the user cancels.</summary>
+    int? AskForNumber(string title, string prompt, int current, int minimum, int maximum);
+
+    /// <summary>Opens the print preview on the pages that were rendered.</summary>
+    void ShowPrintPreview(System.Windows.Documents.FixedDocument document, string title);
 
     void ShowInfo(string message, string title);
 

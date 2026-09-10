@@ -15,7 +15,8 @@
     <Authors>Ibrahim Masry Ibrahim</Authors>
     <Company>Ibrahim Masry Ibrahim</Company>
     <Copyright>© Ibrahim Masry Ibrahim</Copyright>
-    <Version>1.4.0</Version>
+    <Version>2.0.0</Version>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <CodePage>65001</CodePage>
@@ -23,6 +24,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FileListPageCounter.Core\FileListPageCounter.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Also shipped as content so the window and shortcuts can show the same mark. -->
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
 </Project>

@@ -68,7 +68,7 @@ public class OfflineAndPrivacyTests
         string[] before = Directory.GetFiles(source.Path, "*", SearchOption.AllDirectories).OrderBy(x => x).ToArray();
 
         ScanResult result = await new ScanService().ScanFolderAsync(source.Path, new ScanOptions());
-        WordReportBuilder.Build(output.File("report.docx"), result.Entries, new ReportOptions());
+        WordReportBuilder.Build(output.File("report.docx"), ReportRow.From(result.Entries), new ReportOptions());
 
         string[] after = Directory.GetFiles(source.Path, "*", SearchOption.AllDirectories).OrderBy(x => x).ToArray();
 

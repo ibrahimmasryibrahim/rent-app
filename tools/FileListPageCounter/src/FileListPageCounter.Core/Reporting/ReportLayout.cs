@@ -42,11 +42,55 @@ public static class ReportLayout
     }
 
     /// <summary>
+    /// How many table rows fit on a page when the user has not pinned a number. Used to fill in
+    /// "تلقائي" with a concrete figure for the preview.
+    /// </summary>
+    public static int RowsThatFitOnAPage(int fontSize, bool firstPage)
+    {
+        int rowHeight = EstimateRowHeightTwips(fontSize);
+        int body = UsableHeightTwips - (firstPage ? TitleBlockTwips : 0) - rowHeight;
+        return Math.Max(1, body / rowHeight);
+    }
+
+    /// <summary>
+    /// How many table rows the title block displaces on the first page. The first page has to
+    /// carry that many fewer rows, or the title pushes the last of them onto a page of their own.
+    /// </summary>
+    public static int TitleBlockRowEquivalent(int fontSize) =>
+        (int)Math.Ceiling(TitleBlockTwips / (double)EstimateRowHeightTwips(fontSize));
+
+    /// <summary>Rows allowed on the first page once the title block has taken its share.</summary>
+    public static int FirstPageRows(int fontSize, int rowsPerPage) =>
+        rowsPerPage <= 0 ? 0 : Math.Max(1, rowsPerPage - TitleBlockRowEquivalent(fontSize));
+
+    /// <summary>
+    /// The page count when each page carries exactly <paramref name="rowsPerPage"/> table rows.
+    /// This is exact rather than estimated, because the report writer breaks the pages itself.
+    /// </summary>
+    public static int PagesAtFixedRowsPerPage(int entryCount, int blocks, int rowsPerPage, int fontSize)
+    {
+        if (rowsPerPage <= 0) throw new ArgumentOutOfRangeException(nameof(rowsPerPage));
+
+        int rows = TableRowCount(entryCount, blocks);
+        if (rows == 0) return 1;
+
+        int firstPage = FirstPageRows(fontSize, rowsPerPage);
+        if (rows <= firstPage) return 1;
+
+        return 1 + (((rows - firstPage) + rowsPerPage - 1) / rowsPerPage);
+    }
+
+    /// <summary>
     /// A close estimate of the printed page count — close enough to choose a layout by, but it is
     /// still an estimate: Word decides the final pagination from the actual font metrics.
     /// </summary>
-    public static int EstimatePages(int entryCount, int fontSize, int blocks)
+    public static int EstimatePages(int entryCount, int fontSize, int blocks, int rowsPerPage = 0)
     {
+        if (rowsPerPage > 0)
+        {
+            return PagesAtFixedRowsPerPage(entryCount, blocks, rowsPerPage, fontSize);
+        }
+
         int rows = TableRowCount(entryCount, blocks);
         int rowHeight = EstimateRowHeightTwips(fontSize);
         int headerHeight = rowHeight;
@@ -108,28 +152,61 @@ public static class ReportLayout
     /// next — so block one holds items 1..n, block two the next n, and the numbers still read in
     /// order down the page. Cells past the end of the list come back null.
     /// </summary>
-    public static IReadOnlyList<FileEntry?[]> Arrange(IReadOnlyList<FileEntry> entries, int blocks)
+    public static IReadOnlyList<ReportRow?[]> Arrange(IReadOnlyList<ReportRow> rows, int blocks)
     {
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(rows);
 
         blocks = NormalizeBlocks(blocks);
-        int rows = TableRowCount(entries.Count, blocks);
+        int lines = TableRowCount(rows.Count, blocks);
 
-        var table = new List<FileEntry?[]>(rows);
+        var table = new List<ReportRow?[]>(lines);
 
-        for (int row = 0; row < rows; row++)
+        for (int line = 0; line < lines; line++)
         {
-            var cells = new FileEntry?[blocks];
+            var cells = new ReportRow?[blocks];
 
             for (int block = 0; block < blocks; block++)
             {
-                int position = (block * rows) + row;
-                cells[block] = position < entries.Count ? entries[position] : null;
+                int position = (block * lines) + line;
+                cells[block] = position < rows.Count ? rows[position] : null;
             }
 
             table.Add(cells);
         }
 
         return table;
+    }
+
+    /// <summary>
+    /// Splits arranged rows into pages. With a pinned row count each page holds exactly that many
+    /// rows; with zero the whole table is one run and the word processor breaks it where it likes.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<ReportRow?[]>> Paginate(
+        IReadOnlyList<ReportRow?[]> arranged,
+        int rowsPerPage,
+        int firstPageRows = 0)
+    {
+        ArgumentNullException.ThrowIfNull(arranged);
+
+        if (rowsPerPage <= 0)
+        {
+            return new[] { arranged };
+        }
+
+        if (firstPageRows <= 0) firstPageRows = rowsPerPage;
+
+        var pages = new List<IReadOnlyList<ReportRow?[]>>();
+        int start = 0;
+        int allowance = firstPageRows;
+
+        while (start < arranged.Count)
+        {
+            int take = Math.Min(allowance, arranged.Count - start);
+            pages.Add(arranged.Skip(start).Take(take).ToArray());
+            start += take;
+            allowance = rowsPerPage;
+        }
+
+        return pages.Count == 0 ? new[] { arranged } : pages;
     }
 }
