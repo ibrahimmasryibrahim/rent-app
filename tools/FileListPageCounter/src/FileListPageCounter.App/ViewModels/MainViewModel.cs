@@ -100,6 +100,7 @@ public sealed class MainViewModel : ObservableObject
     private double _progressValue;
     private bool _isBusy;
     private int _logEntryCount;
+    private bool _showProcessingStatus = true;
     private FixedDocument? _previewDocument;
     private string _previewSummary = string.Empty;
     private RowsPerPageOption _selectedRowsPerPage;
@@ -133,6 +134,7 @@ public sealed class MainViewModel : ObservableObject
         MoveDownCommand = new RelayCommand(MoveDown, () => !IsBusy && SelectedRows.Count > 0);
         RenumberCommand = new RelayCommand(Renumber, () => !IsBusy && Rows.Count > 0);
 
+        ToggleProcessingStatusCommand = new RelayCommand(() => ShowProcessingStatus = !ShowProcessingStatus);
         ClearCommand = new RelayCommand(Clear, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         SaveLogCommand = new RelayCommand(SaveLog, () => HasLogEntries);
@@ -159,6 +161,8 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand MoveDownCommand { get; }
 
     public RelayCommand RenumberCommand { get; }
+
+    public RelayCommand ToggleProcessingStatusCommand { get; }
 
     public RelayCommand ClearCommand { get; }
 
@@ -304,6 +308,18 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasLogEntries => LogEntryCount > 0;
 
+    /// <summary>Whether the "تمت معالجة س من ص" line and the status text are on show.</summary>
+    public bool ShowProcessingStatus
+    {
+        get => _showProcessingStatus;
+        set
+        {
+            if (SetProperty(ref _showProcessingStatus, value)) OnPropertyChanged(nameof(ProcessingStatusToggleText));
+        }
+    }
+
+    public string ProcessingStatusToggleText => ShowProcessingStatus ? "إخفاء حالة المعالجة" : "إظهار حالة المعالجة";
+
     public static string Developer => Strings.Developer;
 
     // ------------------------------------------------------- report options
@@ -388,7 +404,14 @@ public sealed class MainViewModel : ObservableObject
         get => _userName;
         set
         {
-            if (SetProperty(ref _userName, value)) SchedulePreview();
+            if (!SetProperty(ref _userName, value)) return;
+
+            // Typing a name is itself the request to show it. Leaving the box disabled until a
+            // checkbox was ticked meant a user could type nothing and see nothing, with no clue
+            // which of the two was missing.
+            if (!string.IsNullOrWhiteSpace(value)) ShowUserName = true;
+
+            SchedulePreview();
         }
     }
 

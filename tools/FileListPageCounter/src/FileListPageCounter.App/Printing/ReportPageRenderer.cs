@@ -110,7 +110,7 @@ public static class ReportPageRenderer
             FlowDirection = FlowDirection.RightToLeft
         };
 
-        var body = new StackPanel { Width = UsableWidth };
+        var body = new StackPanel { Width = UsableWidth, FlowDirection = FlowDirection.RightToLeft };
 
         // Running header: the report title, quiet, with a rule under it.
         body.Children.Add(new Border
@@ -145,7 +145,7 @@ public static class ReportPageRenderer
 
     private static UIElement TitleBlock(ReportOptions options)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 14), FlowDirection = FlowDirection.RightToLeft };
 
         panel.Children.Add(new Border
         {
@@ -174,7 +174,7 @@ public static class ReportPageRenderer
 
     private static UIElement FigureBand(ReportTotals totals, ReportOptions options)
     {
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 16), FlowDirection = FlowDirection.RightToLeft };
         for (int i = 0; i < 3; i++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -189,13 +189,14 @@ public static class ReportPageRenderer
             BorderBrush = BorderBrush,
             BorderThickness = new Thickness(1),
             Background = PanelFill,
+            FlowDirection = FlowDirection.RightToLeft,
             Child = grid
         };
     }
 
     private static void AddFigure(Grid grid, int column, string label, long value, ReportOptions options)
     {
-        var panel = new StackPanel { Margin = new Thickness(6, 8, 6, 8) };
+        var panel = new StackPanel { Margin = new Thickness(6, 8, 6, 8), FlowDirection = FlowDirection.RightToLeft };
 
         panel.Children.Add(Text(
             value.ToString("N0", CultureInfo.InvariantCulture),
@@ -225,7 +226,8 @@ public static class ReportPageRenderer
 
         double scale = UsableWidth / 9638d;
 
-        var grid = new Grid();
+        // Right to left, so the first column of the first block sits on the right edge.
+        var grid = new Grid { FlowDirection = FlowDirection.RightToLeft };
 
         for (int block = 0; block < blocks; block++)
         {
@@ -287,6 +289,7 @@ public static class ReportPageRenderer
         {
             BorderBrush = Accent,
             BorderThickness = new Thickness(0, 1.5, 0, 1.5),
+            FlowDirection = FlowDirection.RightToLeft,
             Child = grid
         };
     }
@@ -310,6 +313,7 @@ public static class ReportPageRenderer
             Background = background,
             BorderBrush = BorderBrush,
             BorderThickness = new Thickness(0.5),
+            FlowDirection = FlowDirection.RightToLeft,
             Child = block
         };
 
@@ -322,7 +326,7 @@ public static class ReportPageRenderer
 
     private static UIElement SummaryBlock(ReportTotals totals, ReportOptions options)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
+        var panel = new StackPanel { Margin = new Thickness(0, 18, 0, 0), FlowDirection = FlowDirection.RightToLeft };
 
         panel.Children.Add(new Border
         {
@@ -344,7 +348,7 @@ public static class ReportPageRenderer
 
     private static UIElement Footer(int pageNumber, ReportOptions options)
     {
-        var panel = new StackPanel { Width = UsableWidth };
+        var panel = new StackPanel { Width = UsableWidth, FlowDirection = FlowDirection.RightToLeft };
 
         panel.Children.Add(Text(
             $"{Strings.PageOf} {pageNumber}",
