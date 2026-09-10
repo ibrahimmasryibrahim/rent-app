@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Printing;
 using System.Windows;
+using System.Windows.Controls;   // PrintDialog lives here, not in System.Windows
 using System.Windows.Documents;
-using FileListPageCounter.Core.Models;
 
 namespace FileListPageCounter.App;
 
